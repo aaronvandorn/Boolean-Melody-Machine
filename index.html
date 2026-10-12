@@ -243,6 +243,20 @@
   .chip.linkchip.active{background:var(--amber);border-color:var(--amber);color:var(--ink);}
   .harmonicField{transition:opacity .15s;}
   .harmonicField.off{opacity:.35;pointer-events:none;}
+  .chip.envchip.active{background:var(--vc,var(--amber));border-color:var(--vc,var(--amber));color:var(--ink);}
+  .envpanel{
+    margin-top:14px;display:grid;grid-template-columns:minmax(150px,1.1fr) repeat(5,minmax(0,1fr));
+    gap:12px 14px;align-items:end;
+    border-top:1px dashed var(--line-dim);padding-top:12px;
+  }
+  .envpanel[hidden]{display:none;}
+  .envgraph{grid-row:span 1;background:var(--panel2);border:1px solid var(--line-dim);border-radius:6px;padding:4px;align-self:stretch;display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .envgraph canvas{display:block;width:100%;height:56px;}
+  .envgraph span{font-size:9px;letter-spacing:.06em;color:var(--label-dim);text-transform:uppercase;}
+  @media (max-width:760px){
+    .envpanel{grid-template-columns:repeat(2,minmax(0,1fr));}
+    .envgraph{grid-column:1/-1;}
+  }
 
   .addvoice{
     background:transparent;border:1px dashed var(--line);
@@ -1563,6 +1577,7 @@ function makeVoice(){
     lastNote:null,
     harmonicLink:false,
     harmonicComplexity:35,
+    env: cleanEnv(null),
   };
 }
 
@@ -1593,21 +1608,67 @@ function ensureAudio(){
   });
 }
 
-function playNote(v, midi, time){
-  if(v.muted) return;
-  const osc = audioCtx.createOscillator();
-  osc.type = v.tone;
+/* ---------- note voice (shared by live play, the export preview and the WAV render) ----------
+   env null  → the original fixed pluck: 8 ms attack, ~0.3 s exponential fall.
+   env given → ADSR: attack to the peak, decay toward the sustain level, held until the gate
+   length is up, then release. Values are worked out ahead of time (no cancelAndHoldAtTime) so
+   notes scheduled in advance behave the same in every browser and in the offline render. */
+const ENV_PEAK = 0.55;
+const DEFAULT_ENV = { on:false, a:10, d:250, s:45, r:350, gate:220 };
+const ENV_LIMITS = { a:[1,2000], d:[10,3000], s:[0,100], r:[10,4000], gate:[20,4000] };
+function cleanEnv(e){
+  const o = Object.assign({}, DEFAULT_ENV);
+  if(e && typeof e==='object'){
+    o.on = e.on===true;
+    for(const k in ENV_LIMITS){
+      const n = Number(e[k]);
+      if(Number.isFinite(n)) o[k] = Math.max(ENV_LIMITS[k][0], Math.min(ENV_LIMITS[k][1], Math.round(n)));
+    }
+  }
+  return o;
+}
+function activeEnv(v){ return v.env && v.env.on ? { a:v.env.a, d:v.env.d, s:v.env.s, r:v.env.r, gate:v.env.gate } : null; }
+/* level of the ADSR at `t` seconds after note start, before release */
+function envLevelAt(env, t){
+  const A = env.a/1000, D = env.d/1000, S = env.s/100;
+  if(t <= A) return ENV_PEAK * (t/A);
+  return ENV_PEAK*S + (ENV_PEAK - ENV_PEAK*S) * Math.exp(-(t-A)/(D/4));
+}
+function synthVoiceNote(ctx, out, midi, time, tone, env){
+  const osc = ctx.createOscillator();
+  osc.type = tone;
   osc.frequency.setValueAtTime(midiToFreq(midi), time);
-  const filt = audioCtx.createBiquadFilter();
+  const filt = ctx.createBiquadFilter();
   filt.type='lowpass';
   filt.frequency.setValueAtTime(midiToFreq(midi+18), time);
-  const env = audioCtx.createGain();
-  env.gain.setValueAtTime(0.0001, time);
-  env.gain.linearRampToValueAtTime(0.55, time+0.008);
-  env.gain.exponentialRampToValueAtTime(0.0001, time+0.32);
-  osc.connect(filt); filt.connect(env); env.connect(v.gainNode);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, time);
+  let end;
+  if(!env){
+    g.gain.linearRampToValueAtTime(ENV_PEAK, time+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, time+0.32);
+    end = time+0.36;
+  } else {
+    const A = env.a/1000, D = env.d/1000, R = env.r/1000, gate = env.gate/1000;
+    const tRel = time + gate;
+    if(gate < A){
+      g.gain.linearRampToValueAtTime(envLevelAt(env, gate), tRel);   // released mid-attack
+    } else {
+      g.gain.linearRampToValueAtTime(ENV_PEAK, time+A);
+      g.gain.setTargetAtTime(ENV_PEAK*env.s/100, time+A, D/4);
+      g.gain.setValueAtTime(envLevelAt(env, gate), tRel);
+    }
+    g.gain.setTargetAtTime(0, tRel, R/5);
+    end = tRel + R + 0.05;
+  }
+  osc.connect(filt); filt.connect(g); g.connect(out);
   osc.start(time);
-  osc.stop(time+0.36);
+  osc.stop(end);
+}
+
+function playNote(v, midi, time){
+  if(v.muted) return;
+  synthVoiceNote(audioCtx, v.gainNode, midi, time, v.tone, activeEnv(v));
 
   const delayMs = Math.max(0,(time-audioCtx.currentTime)*1000);
   setTimeout(()=>flashStep(v),delayMs);
@@ -1776,7 +1837,7 @@ function triggerVoice(v, time){
   v.lastStep = step;
   v.lastNote = note;
   v.noteHistory.push({time, note});
-  if(!v.muted) recordBuffer.push({time, note, voiceId:v.id, color:v.color, tone:v.tone});
+  if(!v.muted) recordBuffer.push({time, note, voiceId:v.id, color:v.color, tone:v.tone, env:activeEnv(v)});
   renderVoicePattern(v);
   updateHarmonicReadout(v);
 }
@@ -1947,7 +2008,44 @@ function logicOptionsHtml(selected){
   return LOGIC_OPS.map(op=>`<option value="${op}" ${op===selected?'selected':''}>${op}</option>`).join('');
 }
 
+/* Envelope sliders run on a squared scale so short times get most of the travel. */
+function envToSlider(k, val){ const [lo,hi]=ENV_LIMITS[k]; return k==='s' ? val : Math.round(1000*Math.sqrt((val-lo)/(hi-lo))); }
+function sliderToEnv(k, pos){ const [lo,hi]=ENV_LIMITS[k]; return k==='s' ? pos : Math.round(lo + (hi-lo)*Math.pow(pos/1000,2)); }
+function fmtEnv(k, val){ return k==='s' ? val+'%' : (val>=1000 ? (val/1000).toFixed(val>=10000?0:2)+' s' : val+' ms'); }
+function envSliderHtml(k, label, val){
+  return `<div class="sliderfield"><label>${label} — <span class="sv env_${k}Val">${fmtEnv(k,val)}</span></label>
+    <input type="range" class="envSlider" data-k="${k}" min="0" max="${k==='s'?100:1000}" value="${envToSlider(k,val)}" aria-label="${label}"></div>`;
+}
+function drawEnvGraph(v, el){
+  const cv = el.querySelector('.envCanvas'); if(!cv) return;
+  const r = cv.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio||1);
+  if(r.width){ cv.width = Math.round(r.width*dpr); cv.height = Math.round(r.height*dpr); }
+  const W = cv.width, H = cv.height, g = cv.getContext('2d');
+  const e = v.env, gate = e.gate/1000, R = e.r/1000, total = gate + R;
+  g.clearRect(0,0,W,H);
+  const cs = getComputedStyle(el);
+  g.strokeStyle = cs.getPropertyValue('--line-dim').trim() || '#555'; g.lineWidth = 1*dpr;
+  const gx = gate/total*W; g.setLineDash([3*dpr,3*dpr]); g.beginPath(); g.moveTo(gx,0); g.lineTo(gx,H); g.stroke(); g.setLineDash([]);
+  const pad = 4*dpr, yOf = lv => H - pad - (lv/ENV_PEAK)*(H-2*pad);
+  g.beginPath();
+  const N = 120, relLv = envLevelAt(e, gate);
+  for(let i=0;i<=N;i++){
+    const t = total*i/N;
+    const lv = t<=gate ? envLevelAt(e,t) : relLv*Math.exp(-(t-gate)/(R/5));
+    const x = t/total*W, y = yOf(lv);
+    i ? g.lineTo(x,y) : g.moveTo(x,y);
+  }
+  g.strokeStyle = v.color; g.lineWidth = 2*dpr; g.stroke();
+  g.lineTo(W, H-pad); g.lineTo(0, H-pad); g.closePath(); g.globalAlpha = .15; g.fillStyle = v.color; g.fill(); g.globalAlpha = 1;
+  el.querySelector('.envTotal').textContent = fmtEnv('gate',e.gate)+' + '+fmtEnv('r',e.r);
+}
+
+function redrawEnvGraphs(){ voices.forEach(v=>{ const el=document.querySelector(`.voice[data-id="${v.id}"]`); if(el && v.env && v.env.on) drawEnvGraph(v, el); }); }
+new MutationObserver(redrawEnvGraphs).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+window.addEventListener('resize', ()=>requestAnimationFrame(redrawEnvGraphs));
+
 function renderVoice(v){
+  if(!v.env) v.env = cleanEnv(null);
   const isRoot = (v === voices[0]);
   const el = document.createElement('div');
   el.className='voice';
@@ -1957,6 +2055,7 @@ function renderVoice(v){
     <div class="voicehead">
       <div class="voicename">${v.name}${isRoot?' <span style=\"color:var(--label-dim);font-weight:400;font-size:11px;\">— ROOT</span>':''}</div>
       <button class="chip mutechip">MUTE</button>
+      <button class="chip envchip" title="Use a custom envelope for this voice">ENV</button>
       ${isRoot ? '' : '<button class="chip linkchip">LINK</button>'}
       ${isRoot ? '' : '<button class="chip removechip">REMOVE</button>'}
       <div class="steprow"></div>
@@ -2020,6 +2119,14 @@ function renderVoice(v){
         <div class="predictscale"><span>SIMPLE (5th/oct)</span><span>THIRDS/6ths</span><span>COMPLEX</span></div>
       </div>`}
     </div>
+    <div class="envpanel" hidden>
+      <div class="envgraph"><canvas class="envCanvas" width="300" height="112"></canvas><span>Gate + release · <span class="envTotal"></span></span></div>
+      ${envSliderHtml('a','ATTACK',v.env.a,'ms')}
+      ${envSliderHtml('d','DECAY',v.env.d,'ms')}
+      ${envSliderHtml('s','SUSTAIN',v.env.s,'%')}
+      ${envSliderHtml('r','RELEASE',v.env.r,'ms')}
+      ${envSliderHtml('gate','GATE',v.env.gate,'ms')}
+    </div>
     <div class="scope">
       <canvas class="scopeCanvas" width="1120" height="120"></canvas>
       <div class="scopelabels"><span>NOTE</span><span>CLOCK A</span><span>CLOCK B</span><span class="logicLabel">${v.logic} →</span></div>
@@ -2029,6 +2136,23 @@ function renderVoice(v){
   renderVoicePattern(v);
   if(v.muted){ el.classList.add('muted'); el.querySelector('.mutechip').classList.add('active'); }
   if(!isRoot && v.harmonicLink){ el.querySelector('.linkchip').classList.add('active'); }
+  const envChip = el.querySelector('.envchip'), envPanel = el.querySelector('.envpanel');
+  function syncEnvUI(){
+    envChip.classList.toggle('active', v.env.on);
+    envChip.setAttribute('aria-pressed', String(v.env.on));
+    envPanel.hidden = !v.env.on;
+    if(v.env.on) requestAnimationFrame(()=>drawEnvGraph(v, el));
+  }
+  syncEnvUI();
+  envChip.addEventListener('click',()=>{ v.env.on = !v.env.on; syncEnvUI(); });
+  envPanel.querySelectorAll('.envSlider').forEach(sl=>{
+    sl.addEventListener('input',()=>{
+      const k = sl.dataset.k;
+      v.env[k] = sliderToEnv(k, parseInt(sl.value,10));
+      el.querySelector('.env_'+k+'Val').textContent = fmtEnv(k, v.env[k]);
+      drawEnvGraph(v, el);
+    });
+  });
 
   el.querySelector('.mutechip').addEventListener('click',(e)=>{
     v.muted=!v.muted;
@@ -2102,6 +2226,7 @@ function serializeVoices(){
     patternLength:v.patternLength, predictability:v.predictability,
     pattern: v.pattern.slice(), stepCount: v.stepCount,
     harmonicLink:v.harmonicLink, harmonicComplexity:v.harmonicComplexity,
+    env: Object.assign({}, v.env),
   }));
 }
 function captureCurrentState(){
@@ -2184,6 +2309,7 @@ function applyPatternState(state){
     pattern: sv.pattern.slice(), stepCount: sv.stepCount||0,
     seed: Math.random()*1000, gainNode:null, noteHistory:[], lastNote:null,
     harmonicLink: sv.harmonicLink, harmonicComplexity: sv.harmonicComplexity,
+    env: cleanEnv(sv.env),   // older saves have no envelope: it comes back off
   }));
   voices.forEach(v=>renderVoice(v));
   if(audioCtx) ensureAudio();
@@ -2361,19 +2487,8 @@ function ensurePreviewGain(){
     previewGain.connect(masterGain);
   }
 }
-function playPreviewNote(midi, time, tone){
-  const osc = audioCtx.createOscillator();
-  osc.type = tone;
-  osc.frequency.setValueAtTime(midiToFreq(midi), time);
-  const filt = audioCtx.createBiquadFilter();
-  filt.type='lowpass';
-  filt.frequency.setValueAtTime(midiToFreq(midi+18), time);
-  const env = audioCtx.createGain();
-  env.gain.setValueAtTime(0.0001, time);
-  env.gain.linearRampToValueAtTime(0.55, time+0.008);
-  env.gain.exponentialRampToValueAtTime(0.0001, time+0.32);
-  osc.connect(filt); filt.connect(env); env.connect(previewGain);
-  osc.start(time); osc.stop(time+0.36);
+function playPreviewNote(midi, time, tone, env){
+  synthVoiceNote(audioCtx, previewGain, midi, time, tone, env||null);
 }
 function updatePreviewButtons(){
   document.getElementById('stopPreviewBtn').disabled = !previewActive;
@@ -2401,7 +2516,7 @@ function startPreview(){
   previewGain.gain.cancelScheduledValues(audioCtx.currentTime);
   previewGain.gain.setValueAtTime(1, audioCtx.currentTime);
   events.forEach(e=>{
-    playPreviewNote(e.note, startAt + (e.time - selRange.startTime), e.tone||'triangle');
+    playPreviewNote(e.note, startAt + (e.time - selRange.startTime), e.tone||'triangle', e.env);
   });
   const duration = (selRange.endTime - selRange.startTime) + 0.4;
   previewActive = true;
@@ -2449,7 +2564,7 @@ function buildMidiFile(events, startTime){
   events.forEach(e=>{
     const relSec = e.time - startTime;
     const onTick = secToTicks(relSec);
-    const offTick = secToTicks(relSec+NOTE_DUR);
+    const offTick = secToTicks(relSec+(e.env ? e.env.gate/1000 : NOTE_DUR));
     const c = channelOf[e.voiceId];
     const note = Math.max(0,Math.min(127, Math.round(e.note)));
     msgs.push({tick:onTick, bytes:[0x90|c, note, 96]});
@@ -2489,19 +2604,8 @@ document.getElementById('exportMidiBtn').addEventListener('click',()=>{
 /* ---- WAV export (offline render of the exact same synth voice) ---- */
 function midiToFreqExport(m){ return 440*Math.pow(2,(m-69)/12); }
 
-function renderOfflineNote(ctx, gainOut, midi, time, tone){
-  const osc = ctx.createOscillator();
-  osc.type = tone;
-  osc.frequency.setValueAtTime(midiToFreqExport(midi), time);
-  const filt = ctx.createBiquadFilter();
-  filt.type='lowpass';
-  filt.frequency.setValueAtTime(midiToFreqExport(midi+18), time);
-  const env = ctx.createGain();
-  env.gain.setValueAtTime(0.0001, time);
-  env.gain.linearRampToValueAtTime(0.55, time+0.008);
-  env.gain.exponentialRampToValueAtTime(0.0001, time+0.32);
-  osc.connect(filt); filt.connect(env); env.connect(gainOut);
-  osc.start(time); osc.stop(time+0.36);
+function renderOfflineNote(ctx, gainOut, midi, time, tone, env){
+  synthVoiceNote(ctx, gainOut, midi, time, tone, env||null);
 }
 
 function audioBufferToWav(buffer){
@@ -2532,14 +2636,15 @@ document.getElementById('exportWavBtn').addEventListener('click', async ()=>{
   if(!selRange || !selSnapshot) return;
   const events = selSnapshot.events.filter(e=>e.time>=selRange.startTime && e.time<selRange.endTime);
   if(!events.length) return;
-  const duration = (selRange.endTime - selRange.startTime) + 0.5;
+  const tail = events.reduce((m,e)=>Math.max(m, e.env ? (e.env.gate+e.env.r)/1000 + 0.1 : 0.5), 0.5);
+  const duration = (selRange.endTime - selRange.startTime) + tail;
   const OfflineCtor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const offlineCtx = new OfflineCtor(2, Math.ceil(44100*duration), 44100);
   const master = offlineCtx.createGain();
   master.gain.value = 0.8;
   master.connect(offlineCtx.destination);
   events.forEach(e=>{
-    renderOfflineNote(offlineCtx, master, e.note, e.time - selRange.startTime, e.tone || 'triangle');
+    renderOfflineNote(offlineCtx, master, e.note, e.time - selRange.startTime, e.tone || 'triangle', e.env);
   });
   const rendered = await offlineCtx.startRendering();
   downloadBlob(audioBufferToWav(rendered), 'boolean-melody-selection.wav');

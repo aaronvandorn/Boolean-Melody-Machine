@@ -1,6 +1,16 @@
 # Boolean-Melody-Machine
 A generative melody and harmony maker using Boolean logic gates and Euclidean clocks
 
+## Voice envelopes
+
+Each voice has an **ENV** button. Off, the voice plays the original short pluck. On, it opens an envelope row for that voice:
+
+- **Attack**, **Decay**, **Sustain** and **Release** shape the volume of each note.
+- **Gate** is how long each note is held before the release starts, so it sets the note length.
+- The small graph shows the shape, with a dashed line where the gate ends.
+
+The envelope is saved with patterns, Jam scenes and Discobot projects, and is used in the selection preview, the WAV export, and (as note length) the MIDI export. Patterns saved before this change load with the envelope off.
+
 ## Jam Link
 
 Press **Link** in this app and in Logic Rhythm, Boolean Melody Machine and Choir (open each in its own tab or window of the same browser) and they share tempo, start/stop, key and mode, and saved scenes, all locked to one beat grid. **Create room** or **Join** with a short code to do the same with people in other places, and hear each other's apps. See [JAM-LINK.md](JAM-LINK.md) for how it works.
