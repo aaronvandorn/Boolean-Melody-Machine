@@ -285,6 +285,40 @@
   }
   .legend b{color:var(--label);font-family:'Space Mono',monospace;font-weight:700;}
 
+
+  /* ---- per-voice tabs + SOUND pane ---- */
+  .enginetag{
+    font-family:'Space Mono',monospace;font-size:10.5px;color:var(--amber);cursor:pointer;
+    border:1px solid var(--amber-dim);border-radius:4px;padding:3px 7px;letter-spacing:.2px;white-space:nowrap;
+  }
+  .enginetag:hover{border-color:var(--amber);}
+  .vtabs{display:flex;gap:2px;margin:0 0 14px;border-bottom:1px solid var(--line-dim);}
+  .vtab{
+    background:transparent;border:1px solid transparent;border-bottom:none;color:var(--label-dim);
+    font-family:'Archivo Narrow',sans-serif;font-weight:700;font-size:11px;letter-spacing:.08em;
+    padding:7px 16px;cursor:pointer;border-radius:6px 6px 0 0;margin-bottom:-1px;
+  }
+  .vtab:hover{color:var(--label);}
+  .vtab.active{color:var(--amber);background:var(--panel);border-color:var(--line-dim);border-bottom:1px solid var(--panel);}
+  .vpane.hidden{display:none;}
+  .soundtop{display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin-bottom:10px;}
+  .soundtop .field{min-width:170px;flex:1;max-width:280px;}
+  .auditionBtn{border-color:var(--amber-dim);color:var(--amber);}
+  .enginedesc{font-size:12px;line-height:1.5;color:var(--label-dim);margin-bottom:14px;max-width:760px;}
+  .sections{display:flex;flex-direction:column;gap:12px;}
+  .sgroup{border:1px solid var(--line-dim);border-radius:8px;background:var(--panel2);padding:10px 12px 12px;}
+  .sgtitle{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--label-dim);margin-bottom:9px;text-transform:uppercase;}
+  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 16px;align-items:end;}
+  .sctl{display:flex;flex-direction:column;gap:5px;min-width:0;}
+  .sctl label{font-size:10px;letter-spacing:.03em;color:var(--label-dim);text-transform:uppercase;display:flex;justify-content:space-between;gap:6px;}
+  .sctl .sv{font-family:'Space Mono',monospace;font-size:10.5px;color:var(--amber);text-transform:none;}
+  .sctl .tgl{align-self:flex-start;min-width:56px;}
+  .sctl .tgl.on{background:var(--amber);border-color:var(--amber);color:var(--ink);}
+  .chip[hidden]{display:none;}
+  .vvol{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.05em;color:var(--label-dim);font-weight:700;}
+  .vvol input[type=range]{width:90px;}
+  .vvolv{font-family:'Space Mono',monospace;color:var(--amber);min-width:22px;text-align:right;font-weight:400;}
+
   @media (max-width:720px){
     .clockrow{grid-template-columns:repeat(3,1fr);}
   }
@@ -2159,6 +2193,1138 @@ themeBtn.addEventListener('click',()=>{
   themeBtn.textContent = isLight ? '☀ Light' : '☾ Dark';
 });
 
+/* ==== SYNTH CORE BEGIN ==== */
+/* Everything in this block is DOM-free: it only touches the AudioContext it is handed, so the same
+   code drives live playback, the export preview, and the offline WAV render. */
+const clampN=(x,a,b)=>Math.min(b,Math.max(a,x));
+const mtof=(m)=>440*Math.pow(2,(m-69)/12);
+const TWO_PI=Math.PI*2;
+
+function makeRng(seed){
+  let a=(Math.floor((seed==null?Math.random():seed)*4294967296)>>>0)||1;
+  return function(){
+    a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;
+  };
+}
+
+/* ---------- per-context caches (wave tables, noise) ---------- */
+const _ctxCache=new WeakMap();
+function ctxCache(ctx){ let c=_ctxCache.get(ctx); if(!c){ c={waves:{},bufs:{}}; _ctxCache.set(ctx,c); } return c; }
+
+function periodicFromSamples(ctx,key,y){
+  const c=ctxCache(ctx);
+  if(c.waves[key]) return c.waves[key];
+  const N=y.length, H=64;
+  const real=new Float32Array(H+1), imag=new Float32Array(H+1);
+  for(let k=1;k<=H;k++){
+    let re=0,im=0;
+    for(let n=0;n<N;n++){ const ph=TWO_PI*k*n/N; re+=y[n]*Math.cos(ph); im+=y[n]*Math.sin(ph); }
+    real[k]=2*re/N; imag[k]=2*im/N;
+  }
+  return (c.waves[key]=ctx.createPeriodicWave(real,imag));
+}
+function periodicFromFn(ctx,key,fn){
+  if(ctxCache(ctx).waves[key]) return ctxCache(ctx).waves[key];
+  const N=1024, y=new Float32Array(N);
+  for(let n=0;n<N;n++) y[n]=fn(n/N);
+  return periodicFromSamples(ctx,key,y);
+}
+/* DX7-style operator self-feedback, baked into a static wave: y = sin(theta + beta*avg(prev two outputs)) */
+const FB_BETA=[0,0.15,0.35,0.6,0.95,1.4,2.0,2.8];
+function fbWave(ctx,fb){
+  const key='fb'+fb;
+  if(ctxCache(ctx).waves[key]) return ctxCache(ctx).waves[key];
+  const N=512, y=new Float32Array(N), beta=FB_BETA[clampN(fb|0,0,7)];
+  let y1=0,y2=0;
+  for(let cyc=0;cyc<14;cyc++){
+    for(let n=0;n<N;n++){
+      const v=Math.sin(TWO_PI*n/N+beta*(y1+y2)*0.5);
+      y2=y1; y1=v;
+      if(cyc===13) y[n]=v;
+    }
+  }
+  return periodicFromSamples(ctx,key,y);
+}
+function sharkWave(ctx){
+  return periodicFromFn(ctx,'shark',ph=> ph<0.85 ? -1+2*(ph/0.85) : 1-2*((ph-0.85)/0.15));
+}
+
+function noiseBuffer(ctx,color){
+  const c=ctxCache(ctx), key=color==='pink'?'pink':'white';
+  if(c.bufs[key]) return c.bufs[key];
+  const len=Math.floor(ctx.sampleRate*2), b=ctx.createBuffer(1,len,ctx.sampleRate), d=b.getChannelData(0);
+  if(key==='white'){ for(let i=0;i<len;i++) d[i]=Math.random()*2-1; }
+  else{
+    let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+    for(let i=0;i<len;i++){
+      const w=Math.random()*2-1;
+      b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759; b2=0.96900*b2+w*0.1538520;
+      b3=0.86650*b3+w*0.3104856; b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+      d[i]=(b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11; b6=w*0.115926;
+    }
+  }
+  return (c.bufs[key]=b);
+}
+function noiseSrc(ctx,color,t,S){
+  const s=ctx.createBufferSource(); s.buffer=noiseBuffer(ctx,color); s.loop=true;
+  s.start(t,Math.random()*1.5); S.push(s); return s;
+}
+
+const _sat={};
+function satCurve(g){
+  const k=g.toFixed(1); if(_sat[k]) return _sat[k];
+  const n=2048,c=new Float32Array(n),norm=Math.tanh(g);
+  for(let i=0;i<n;i++){ const x=i/(n-1)*2-1; c[i]=Math.tanh(g*x)/norm; }
+  return (_sat[k]=c);
+}
+
+/* ---------- envelopes ---------- */
+/* ADSR on an AudioParam. Decay is exponential (time constant = d/3); release starts from the analytically
+   computed level at gate-off. Returns the time the note is effectively silent. */
+function envADSR(param,t,gate,a,d,s,r,peak,floor){
+  const f=floor||0;
+  a=Math.max(0.001,a); d=Math.max(0.005,d); r=Math.max(0.005,r);
+  gate=Math.max(0.005,gate);
+  const tau=d/3;
+  param.setValueAtTime(f,t);
+  let vEnd;
+  if(gate<=a){
+    vEnd=f+(peak-f)*(gate/a);
+    param.linearRampToValueAtTime(vEnd,t+gate);
+  }else{
+    param.linearRampToValueAtTime(peak,t+a);
+    const sus=f+(peak-f)*s;
+    param.setTargetAtTime(sus,t+a,tau);
+    vEnd=sus+(peak-sus)*Math.exp(-(gate-a)/tau);
+  }
+  param.setValueAtTime(vEnd,t+gate);
+  param.setTargetAtTime(f,t+gate,r/3);
+  return t+gate+r*2;
+}
+function envSource(ctx,t,gate,a,d,s,r,S){
+  const c=ctx.createConstantSource(); c.offset.value=0;
+  const end=envADSR(c.offset,t,gate,a,d,s,r,1,0);
+  c.start(t); S.push(c);
+  return {node:c,end};
+}
+function modTo(ctx,src,amount,params){
+  const g=ctx.createGain(); g.gain.value=amount; src.connect(g);
+  params.forEach(p=>{ if(p) g.connect(p); });
+  return g;
+}
+function makeLfo(ctx,shape,rate,t,S,delay){
+  const o=ctx.createOscillator(); o.type=shape; o.frequency.value=rate;
+  const g=ctx.createGain();
+  if(delay>0.01){ g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(1,t+delay); } else g.gain.value=1;
+  o.connect(g); o.start(t); S.push(o);
+  return g;
+}
+
+/* ---------- oscillators ---------- */
+/* kind: sine|triangle|sawtooth|square|wave (PeriodicWave in o.wave)|pulse (band-limited, width in o.pw).
+   Pulse = saw minus a delayed copy of itself, so it stays band-limited and the width (delay time) can be modulated. */
+function makeOsc(ctx,kind,freq,t,S,o){
+  o=o||{};
+  freq=clampN(freq,0.5,ctx.sampleRate*0.45);
+  if(kind==='pulse'){
+    const saw=ctx.createOscillator(); saw.type='sawtooth'; saw.frequency.value=freq;
+    const sum=ctx.createGain(); sum.gain.value=0.5;
+    const dly=ctx.createDelay(0.25); dly.delayTime.value=clampN(o.pw==null?0.5:o.pw,0.02,0.98)/freq;
+    const inv=ctx.createGain(); inv.gain.value=-1;
+    saw.connect(sum); saw.connect(dly); dly.connect(inv); inv.connect(sum);
+    saw.start(t); S.push(saw);
+    return {out:sum,freq:[saw.frequency],detune:[saw.detune],pw:dly.delayTime,hz:freq};
+  }
+  const osc=ctx.createOscillator();
+  if(kind==='wave') osc.setPeriodicWave(o.wave); else osc.type=kind;
+  osc.frequency.value=freq;
+  osc.start(t); S.push(osc);
+  return {out:osc,freq:[osc.frequency],detune:[osc.detune],pw:null,hz:freq};
+}
+function lp24(ctx,hz,res){
+  const a=ctx.createBiquadFilter(), b=ctx.createBiquadFilter();
+  a.type='lowpass'; b.type='lowpass';
+  const f=clampN(hz,20,ctx.sampleRate*0.45);
+  a.frequency.value=f; b.frequency.value=f;
+  a.Q.value=res*3; b.Q.value=res*15;
+  a.connect(b);
+  return {in:a,out:b,det:[a.detune,b.detune]};
+}
+function stopAll(S,end){ S.forEach(s=>{ try{ s.stop(end); }catch(e){} }); }
+
+/* ---------- schema helpers ---------- */
+const pctFmt=v=>Math.round(v*100)+'%';
+const R_=(id,label,min,max,def,step,fmt)=>({id,label,type:'range',min,max,def,step:step||0.01,fmt:fmt||null});
+const L_=(id,label,min,max,def,unit)=>({id,label,type:'log',min,max,def,unit:unit||'s'});
+const S_=(id,label,options,def)=>({id,label,type:'select',options,def});
+const T_=(id,label,def)=>({id,label,type:'toggle',def:!!def});
+const ENV4=(pre,A,D,S,Rr,labels)=>{
+  const l=labels||['ATTACK','DECAY','SUSTAIN','RELEASE'];
+  return [L_(pre+'A',l[0],0.001,8,A,'s'),L_(pre+'D',l[1],0.005,8,D,'s'),R_(pre+'S',l[2],0,1,S,0.01,pctFmt),L_(pre+'R',l[3],0.005,8,Rr,'s')];
+};
+const OCT_OPTS=[[-2,"32'"],[-1,"16'"],[0,"8'"],[1,"4'"],[2,"2'"]];
+
+/* ---------- shared output section (every engine gets this) ---------- */
+const COMMON_SECTIONS=[{
+  title:'OUTPUT & FX',
+  controls:[
+    R_('level','LEVEL',0,1,0.8,0.01,pctFmt),
+    R_('pan','PAN',-1,1,0,0.01,v=>v===0?'C':(v<0?'L'+Math.round(-v*100):'R'+Math.round(v*100))),
+    R_('gate','NOTE LENGTH',0.05,4,0.4,0.01,v=>v.toFixed(2)+' beat'),
+    S_('chorus','CHORUS',[[0,'Off'],[1,'I'],[2,'II'],[3,'I+II']],0),
+    R_('delayMix','DELAY MIX',0,1,0,0.01,pctFmt),
+    L_('delayTime','DELAY TIME',0.03,1.5,0.3,'s'),
+    R_('delayFb','DELAY FEEDBACK',0,0.92,0.35,0.01,pctFmt),
+    R_('reverbMix','REVERB MIX',0,1,0,0.01,pctFmt),
+    S_('reverbSize','REVERB SIZE',[[0.9,'Small'],[1.8,'Medium'],[3.2,'Large']],1.8),
+  ]
+}];
+
+/* ---------- FX bus (one per voice; engines connect to bus.input) ---------- */
+const CHORUS_MODES=[null,
+  {rate:0.5, depth:0.0012,base:0.0052},
+  {rate:0.8, depth:0.0018,base:0.0058},
+  {rate:9.0, depth:0.0003,base:0.0045}];
+function makeIR(ctx,seconds){
+  const len=Math.max(1,Math.floor(ctx.sampleRate*seconds));
+  const b=ctx.createBuffer(2,len,ctx.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=b.getChannelData(ch);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6);
+  }
+  return b;
+}
+function busTail(q){
+  let t=0.3;
+  if(q.delayMix>0.01){ const reps=Math.min(12,Math.log(0.01)/Math.log(Math.max(0.05,q.delayFb))); t+=q.delayTime*reps; }
+  if(q.reverbMix>0.01) t+=q.reverbSize;
+  return Math.min(t,16);
+}
+function createBus(ctx,dest,p){
+  const input=ctx.createGain();
+  const dry=ctx.createGain(), mixA=ctx.createGain();
+  const chWet=ctx.createGain();
+  const cL=ctx.createDelay(0.05), cR=ctx.createDelay(0.05);
+  const pL=ctx.createStereoPanner(), pR=ctx.createStereoPanner();
+  pL.pan.value=-0.85; pR.pan.value=0.85;
+  const clfo=ctx.createOscillator(); clfo.type='sine'; clfo.frequency.value=0.5;
+  const lgL=ctx.createGain(), lgR=ctx.createGain();
+  input.connect(dry); dry.connect(mixA);
+  input.connect(cL); input.connect(cR);
+  cL.connect(pL); pL.connect(chWet); cR.connect(pR); pR.connect(chWet); chWet.connect(mixA);
+  clfo.connect(lgL); clfo.connect(lgR); lgL.connect(cL.delayTime); lgR.connect(cR.delayTime);
+  clfo.start();
+  // delay (tape-ish: darkened feedback)
+  const dIn=ctx.createGain(), dly=ctx.createDelay(2), dfb=ctx.createGain(), dlp=ctx.createBiquadFilter(), dWet=ctx.createGain();
+  dlp.type='lowpass'; dlp.frequency.value=3500;
+  const mixB=ctx.createGain();
+  mixA.connect(dIn); dIn.connect(dly); dly.connect(dlp); dlp.connect(dfb); dfb.connect(dly); dlp.connect(dWet);
+  mixA.connect(mixB); dWet.connect(mixB);
+  // reverb
+  const conv=ctx.createConvolver(), rWet=ctx.createGain(), mixC=ctx.createGain();
+  mixB.connect(mixC); conv.connect(rWet); rWet.connect(mixC);
+  let convOn=false, irSize=0;
+  const pan=ctx.createStereoPanner(), out=ctx.createGain();
+  mixC.connect(pan); pan.connect(out); out.connect((dest&&dest.input)||dest);
+
+  function set(param,v,imm){
+    if(imm) param.value=v; else param.setTargetAtTime(v,ctx.currentTime,0.02);
+  }
+  function update(q,imm){
+    set(out.gain,q.level,imm);
+    set(pan.pan,q.pan,imm);
+    const m=CHORUS_MODES[q.chorus|0];
+    if(m){
+      set(clfo.frequency,m.rate,imm); lgL.gain.value=m.depth; lgR.gain.value=-m.depth;
+      cL.delayTime.value=m.base; cR.delayTime.value=m.base;
+      set(chWet.gain,0.75,imm); set(dry.gain,0.6,imm);
+    }else{ set(chWet.gain,0,imm); set(dry.gain,1,imm); }
+    set(dly.delayTime,clampN(q.delayTime,0.01,1.9),imm);
+    set(dfb.gain,q.delayFb,imm);
+    set(dWet.gain,q.delayMix,imm);
+    if(q.reverbMix>0.001){
+      if(irSize!==q.reverbSize){ conv.buffer=makeIR(ctx,q.reverbSize); irSize=q.reverbSize; }
+      if(!convOn){ mixB.connect(conv); convOn=true; }
+      set(rWet.gain,q.reverbMix*0.9,imm);
+    }else{
+      set(rWet.gain,0,imm);
+      if(convOn){ try{ mixB.disconnect(conv); }catch(e){} convOn=false; }
+    }
+  }
+  update(p,true);
+  return {
+    input,
+    update,
+    tail(q){ return busTail(q); },
+    stop(at){ try{ clfo.stop(at); }catch(e){} },
+    dispose(){ try{ clfo.stop(); }catch(e){} try{ out.disconnect(); }catch(e){} }
+  };
+}
+
+/* ---------- master chain (gentle limiter keeps stacked voices from clipping) ---------- */
+function makeMaster(ctx,vol,dest){
+  const comp=ctx.createDynamicsCompressor();
+  comp.threshold.value=-10; comp.knee.value=12; comp.ratio.value=6; comp.attack.value=0.004; comp.release.value=0.2;
+  // final soft clip: hard guarantee that nothing leaves the master above full scale
+  const clip=ctx.createWaveShaper(), n=2048, c=new Float32Array(n);
+  for(let i=0;i<n;i++){ const x=(i/(n-1))*4-2; const a=Math.abs(x); c[i]=(a<0.8?x:Math.sign(x)*(0.8+0.2*Math.tanh((a-0.8)/0.2))); }
+  clip.curve=c;
+  // volume sits last, so the node returned is the master output (what gets routed/tapped);
+  // sources connect to its .input
+  const out=ctx.createGain(); out.gain.value=vol;
+  comp.connect(clip); clip.connect(out); out.connect(dest||ctx.destination);
+  out.input=comp;
+  return out;
+}
+
+/* ================== ENGINES ================== */
+const ENGINES={};
+
+/* ---- INIT: the original pluck voice ---- */
+const INIT_PEAK=0.55;
+function initEnvLevel(env,t){
+  const A=env.a/1000, D=env.d/1000, S=env.s/100;
+  if(t<=A) return INIT_PEAK*(t/A);
+  return INIT_PEAK*S+(INIT_PEAK-INIT_PEAK*S)*Math.exp(-(t-A)/(D/4));
+}
+ENGINES.init={
+  label:'Init Pluck',
+  trim:1,
+  over:{level:1},
+  desc:'The original simple voice: one oscillator into a low-pass. By default a fixed short pluck; switch on the ENV button in the voice header for a full ADSR with gate length.',
+  sections:[
+    {title:'OSCILLATOR & FILTER',controls:[
+      S_('wave','WAVE',[['sine','Sine'],['triangle','Triangle'],['sawtooth','Saw'],['square','Square']],'triangle'),
+      R_('bright','BRIGHTNESS',0,48,18,1,v=>'+'+v+' st'),
+    ]},
+  ],
+  presets:{},
+  play(ctx,dest,p,midi,t,dur,ev){
+    const env=(ev&&ev.env)||null;
+    const osc=ctx.createOscillator(); osc.type=p.wave;
+    osc.frequency.setValueAtTime(clampN(mtof(midi),1,ctx.sampleRate*0.45),t);
+    const filt=ctx.createBiquadFilter(); filt.type='lowpass';
+    filt.frequency.setValueAtTime(clampN(mtof(midi+p.bright),20,ctx.sampleRate*0.45),t);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t);
+    let end;
+    if(!env){
+      g.gain.linearRampToValueAtTime(INIT_PEAK,t+0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.32);
+      end=t+0.36;
+    }else{
+      const A=env.a/1000, D=env.d/1000, R=env.r/1000, gate=env.gate/1000, tRel=t+gate;
+      if(gate<A){ g.gain.linearRampToValueAtTime(initEnvLevel(env,gate),tRel); }
+      else{
+        g.gain.linearRampToValueAtTime(INIT_PEAK,t+A);
+        g.gain.setTargetAtTime(INIT_PEAK*env.s/100,t+A,D/4);
+        g.gain.setValueAtTime(initEnvLevel(env,gate),tRel);
+      }
+      g.gain.setTargetAtTime(0,tRel,R/5);
+      end=tRel+R+0.05;
+    }
+    osc.connect(filt); filt.connect(g); g.connect(dest);
+    osc.start(t); osc.stop(end);
+    return end;
+  }
+};
+
+/* ---- MINI: Minimoog-style three-oscillator mono ---- */
+const MOOG_WAVES=[['triangle','Triangle'],['shark','Shark'],['sawtooth','Saw'],['square','Square'],['wide','Wide pulse'],['narrow','Narrow pulse']];
+function moogOscSpec(ctx,w){
+  switch(w){
+    case 'shark': return {kind:'wave',wave:sharkWave(ctx)};
+    case 'wide': return {kind:'pulse',pw:0.33};
+    case 'narrow': return {kind:'pulse',pw:0.12};
+    default: return {kind:w};
+  }
+}
+const moogOscControls=(i,range,wave,level,tune)=>[
+  S_('o'+i+'range','OSC '+i+' RANGE',OCT_OPTS,range),
+  S_('o'+i+'wave','OSC '+i+' WAVE',MOOG_WAVES,wave),
+  R_('o'+i+'level','OSC '+i+' LEVEL',0,1,level,0.01,pctFmt),
+  R_('o'+i+'tune','OSC '+i+' TUNE',-100,100,tune,1,v=>(v>0?'+':'')+v+' ct'),
+];
+ENGINES.moog={
+  label:'Mini (Moog-style)',
+  trim:0.5,
+  desc:'Three oscillators, noise and overload into a 24 dB ladder-style filter. Glide, contour envelopes, LFO. Use a low voice octave for bass.',
+  sections:[
+    {title:'OSCILLATORS',controls:[].concat(
+      moogOscControls(1,-1,'sawtooth',0.8,0),
+      moogOscControls(2,-1,'sawtooth',0.8,7),
+      moogOscControls(3,-2,'square',0.5,-5)
+    )},
+    {title:'MIXER',controls:[
+      R_('noise','NOISE',0,1,0,0.01,pctFmt),
+      S_('noiseColor','NOISE COLOR',[['white','White'],['pink','Pink']],'white'),
+      R_('drive','OVERLOAD',0,1,0.2,0.01,pctFmt),
+      R_('drift','ANALOG DRIFT',0,1,0.3,0.01,pctFmt),
+      R_('glide','GLIDE',0,1,0,0.01,v=>Math.round(v*600)+' ms'),
+    ]},
+    {title:'FILTER',controls:[
+      L_('cutoff','CUTOFF',30,16000,700,'Hz'),
+      R_('res','EMPHASIS',0,1,0.3,0.01,pctFmt),
+      R_('contour','CONTOUR AMOUNT',0,1,0.5,0.01,pctFmt),
+      S_('keytrack','KEYBOARD TRACK',[[0,'Off'],[0.33,'1/3'],[0.67,'2/3'],[1,'Full']],0.67),
+    ]},
+    {title:'FILTER CONTOUR',controls:[
+      L_('feA','ATTACK',0.001,8,0.005,'s'),L_('feD','DECAY',0.005,8,0.3,'s'),R_('feS','SUSTAIN',0,1,0.2,0.01,pctFmt),
+    ]},
+    {title:'LOUDNESS CONTOUR',controls:[
+      L_('aeA','ATTACK',0.001,8,0.005,'s'),L_('aeD','DECAY',0.005,8,0.4,'s'),R_('aeS','SUSTAIN',0,1,0.6,0.01,pctFmt),
+      T_('decayRel','DECAY = RELEASE',true),
+    ]},
+    {title:'MODULATION',controls:[
+      L_('lfoRate','LFO RATE',0.1,20,5,'Hz'),
+      S_('lfoShape','LFO SHAPE',[['triangle','Triangle'],['sawtooth','Saw'],['square','Square'],['sine','Sine']],'triangle'),
+      R_('lfoPitch','LFO → PITCH',0,1,0,0.01,pctFmt),
+      R_('lfoFilter','LFO → FILTER',0,1,0,0.01,pctFmt),
+    ]},
+  ],
+  presets:{
+    'Bass':{o1range:-1,o1wave:'sawtooth',o1level:0.9,o2range:-1,o2wave:'sawtooth',o2level:0.7,o2tune:4,o3range:-2,o3wave:'square',o3level:0.6,
+      drive:0.35,cutoff:180,res:0.35,contour:0.6,keytrack:0.33,feA:0.002,feD:0.22,feS:0,aeA:0.003,aeD:0.35,aeS:0.7,glide:0.05,gate:0.5},
+    'Lead':{o1range:0,o1wave:'sawtooth',o1level:0.8,o2range:0,o2wave:'sawtooth',o2level:0.8,o2tune:6,o3range:0,o3wave:'square',o3level:0.25,o3tune:-12,
+      drive:0.3,cutoff:2400,res:0.3,contour:0.35,keytrack:1,feA:0.01,feD:0.5,feS:0.5,aeA:0.01,aeD:0.3,aeS:0.8,glide:0.12,lfoRate:5.5,lfoPitch:0.12,gate:0.6},
+    'Brass':{o1range:0,o1wave:'sawtooth',o1level:0.8,o2range:0,o2wave:'sawtooth',o2level:0.8,o2tune:5,o3range:-1,o3wave:'sawtooth',o3level:0.6,
+      drive:0.25,cutoff:500,res:0.15,contour:0.6,keytrack:0.67,feA:0.09,feD:0.35,feS:0.6,aeA:0.06,aeD:0.3,aeS:0.85,gate:0.8},
+    'Pluck':{o1range:0,o1wave:'square',o1level:0.8,o2range:0,o2wave:'sawtooth',o2level:0.6,o2tune:3,o3level:0,
+      drive:0.15,cutoff:400,res:0.4,contour:0.7,keytrack:0.67,feA:0.001,feD:0.14,feS:0,aeA:0.002,aeD:0.2,aeS:0,gate:0.3},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
+    const drift=()=>(R()*2-1)*p.drift*8;
+    const mix=ctx.createGain(); mix.gain.value=0.38;
+    const allDet=[];
+    const glideT=p.glide*0.6, from=(ev&&ev.from!=null)?ev.from:null;
+    [1,2,3].forEach(i=>{
+      const lvl=p['o'+i+'level']; if(lvl<=0.001) return;
+      const rm=Math.pow(2,p['o'+i+'range']), f=f0*rm;
+      const spec=moogOscSpec(ctx,p['o'+i+'wave']);
+      const o=makeOsc(ctx,spec.kind,f,t,S,spec);
+      o.detune.forEach(d=>{ d.value=p['o'+i+'tune']+drift(); allDet.push(d); });
+      if(glideT>0.005 && from!=null && Math.abs(from-midi)>0.01){
+        const fFrom=clampN(mtof(from)*rm,0.5,ctx.sampleRate*0.45);
+        o.freq.forEach(fp=>{ fp.setValueAtTime(fFrom,t); fp.exponentialRampToValueAtTime(clampN(f,0.5,ctx.sampleRate*0.45),t+glideT); });
+      }
+      const g=ctx.createGain(); g.gain.value=lvl; o.out.connect(g); g.connect(mix);
+    });
+    if(p.noise>0.001){ const n=noiseSrc(ctx,p.noiseColor,t,S); const g=ctx.createGain(); g.gain.value=p.noise*0.8; n.connect(g); g.connect(mix); }
+    let pre=mix;
+    if(p.drive>0.01){ const sh=ctx.createWaveShaper(); sh.curve=satCurve(1+p.drive*8); sh.oversample='2x'; mix.connect(sh); pre=sh; }
+    const cut=p.cutoff*Math.pow(f0/261.63,p.keytrack);
+    const F=lp24(ctx,cut,p.res);
+    pre.connect(F.in);
+    const feR=p.decayRel?p.feD:0.03, aeR=p.decayRel?p.aeD:0.03;
+    const fe=envSource(ctx,t,dur,p.feA,p.feD,p.feS,feR,S);
+    if(p.contour>0.001) modTo(ctx,fe.node,p.contour*6000,F.det);
+    if(p.lfoPitch>0.001||p.lfoFilter>0.001){
+      const lfo=makeLfo(ctx,p.lfoShape,p.lfoRate,t,S,0);
+      if(p.lfoPitch>0.001) modTo(ctx,lfo,p.lfoPitch*100,allDet);
+      if(p.lfoFilter>0.001) modTo(ctx,lfo,p.lfoFilter*2400,F.det);
+    }
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const ae=envADSR(vca.gain,t,dur,p.aeA,p.aeD,p.aeS,aeR,0.55,0);
+    F.out.connect(vca); vca.connect(dest);
+    const end=Math.max(ae,fe.end)+0.02;
+    stopAll(S,end); return end;
+  }
+};
+
+/* ---- JUNO: DCO + sub + HPF + 24 dB low-pass, LFO, (chorus lives in the shared FX) ---- */
+ENGINES.juno={
+  label:'Juno (Roland-style)',
+  trim:1,
+  desc:'Saw + pulse (PWM) + sub, noise, 4-position high-pass, resonant low-pass, triangle LFO with delay. Add Chorus I/II in OUTPUT & FX.',
+  over:{chorus:1},
+  sections:[
+    {title:'DCO',controls:[
+      S_('range','RANGE',[[-1,"16'"],[0,"8'"],[1,"4'"]],0),
+      R_('sawLevel','SAW',0,1,0.6,0.01,pctFmt),
+      R_('pulseLevel','PULSE',0,1,0.5,0.01,pctFmt),
+      R_('pw','PULSE WIDTH',0.05,0.95,0.5,0.01,pctFmt),
+      S_('pwMode','PWM SOURCE',[['manual','Manual'],['lfo','LFO'],['env','Envelope']],'manual'),
+      R_('pwDepth','PWM DEPTH',0,1,0.5,0.01,pctFmt),
+      R_('subLevel','SUB',0,1,0.4,0.01,pctFmt),
+      R_('noise','NOISE',0,1,0,0.01,pctFmt),
+      R_('drift','ANALOG DRIFT',0,1,0.25,0.01,pctFmt),
+    ]},
+    {title:'LFO',controls:[
+      L_('lfoRate','RATE',0.1,30,4,'Hz'),
+      L_('lfoDelay','DELAY',0.01,3,0.01,'s'),
+      R_('lfoPitch','→ PITCH',0,1,0,0.01,pctFmt),
+      R_('lfoFilter','→ FILTER',0,1,0,0.01,pctFmt),
+    ]},
+    {title:'FILTER',controls:[
+      S_('hpf','HIGH-PASS',[[0,'Off'],[1,'1'],[2,'2'],[3,'3']],0),
+      L_('cutoff','CUTOFF',30,16000,1800,'Hz'),
+      R_('res','RESONANCE',0,1,0.2,0.01,pctFmt),
+      R_('envAmt','ENV AMOUNT',-1,1,0.4,0.01,v=>Math.round(v*100)+'%'),
+      R_('keyFollow','KEY FOLLOW',0,1,0.5,0.01,pctFmt),
+    ]},
+    {title:'FILTER ENVELOPE',controls:ENV4('fe',0.01,0.4,0.3,0.3)},
+    {title:'AMP',controls:[S_('vcaMode','VCA',[['env','Envelope'],['gate','Gate']],'env')].concat(ENV4('ae',0.01,0.3,0.8,0.3))},
+  ],
+  presets:{
+    'Poly Lead':{sawLevel:0.7,pulseLevel:0.3,subLevel:0.2,cutoff:3200,res:0.25,envAmt:0.3,feD:0.5,feS:0.4,aeA:0.005,aeS:0.9,aeR:0.25,
+      lfoRate:5.5,lfoDelay:0.5,lfoPitch:0.15,chorus:1,gate:0.6},
+    'Warm Pad':{sawLevel:0.6,pulseLevel:0.5,pwMode:'lfo',pwDepth:0.6,lfoRate:0.6,cutoff:1400,res:0.1,envAmt:0.2,
+      feA:0.8,feD:1.5,feS:0.6,feR:1.2,aeA:0.6,aeD:1,aeS:0.85,aeR:1.5,chorus:2,gate:1.8},
+    'Sub Bass':{sawLevel:0.3,pulseLevel:0,subLevel:0.9,cutoff:600,res:0.15,envAmt:0.25,feD:0.25,feS:0.3,keyFollow:0.3,aeA:0.005,aeS:0.9,aeR:0.12,chorus:0,gate:0.5},
+    'Brass Stab':{sawLevel:0.8,pulseLevel:0.2,subLevel:0.3,cutoff:900,res:0.2,envAmt:0.6,feA:0.02,feD:0.3,feS:0.3,aeA:0.01,aeS:0.7,aeR:0.15,chorus:1,gate:0.3},
+    'Pluck':{sawLevel:0.5,pulseLevel:0.6,pw:0.35,subLevel:0.2,cutoff:700,res:0.35,envAmt:0.7,feA:0.002,feD:0.18,feS:0,aeA:0.002,aeD:0.25,aeS:0,aeR:0.1,chorus:1,gate:0.25},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi), f=f0*Math.pow(2,p.range);
+    const drift=()=>(R()*2-1)*p.drift*6;
+    const mix=ctx.createGain(); mix.gain.value=0.3;
+    const allDet=[]; let pulseO=null;
+    function add(o,lvl){ o.detune.forEach(d=>{ d.value=drift(); allDet.push(d); }); const g=ctx.createGain(); g.gain.value=lvl; o.out.connect(g); g.connect(mix); }
+    if(p.sawLevel>0.001) add(makeOsc(ctx,'sawtooth',f,t,S),p.sawLevel);
+    if(p.pulseLevel>0.001){ pulseO=makeOsc(ctx,'pulse',f,t,S,{pw:p.pw}); add(pulseO,p.pulseLevel*0.9); }
+    if(p.subLevel>0.001) add(makeOsc(ctx,'square',f/2,t,S),p.subLevel*0.8);
+    if(p.noise>0.001){ const n=noiseSrc(ctx,'white',t,S); const g=ctx.createGain(); g.gain.value=p.noise*0.6; n.connect(g); g.connect(mix); }
+    let chain=mix;
+    const hpHz=[0,240,550,1200][p.hpf|0];
+    if(hpHz>0){ const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=hpHz; hp.Q.value=0.5; chain.connect(hp); chain=hp; }
+    const cut=p.cutoff*Math.pow(f0/261.63,p.keyFollow);
+    const F=lp24(ctx,cut,p.res);
+    chain.connect(F.in);
+    const fe=envSource(ctx,t,dur,p.feA,p.feD,p.feS,p.feR,S);
+    if(Math.abs(p.envAmt)>0.001) modTo(ctx,fe.node,p.envAmt*6000,F.det);
+    const needLfo=p.lfoPitch>0.001||p.lfoFilter>0.001||(pulseO&&p.pwMode==='lfo');
+    if(needLfo){
+      const lfo=makeLfo(ctx,'triangle',p.lfoRate,t,S,p.lfoDelay);
+      if(p.lfoPitch>0.001) modTo(ctx,lfo,p.lfoPitch*70,allDet);
+      if(p.lfoFilter>0.001) modTo(ctx,lfo,p.lfoFilter*2400,F.det);
+      if(pulseO&&p.pwMode==='lfo') modTo(ctx,lfo,p.pwDepth*0.45/pulseO.hz,[pulseO.pw]);
+    }
+    if(pulseO&&p.pwMode==='env') modTo(ctx,fe.node,p.pwDepth*0.45/pulseO.hz,[pulseO.pw]);
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const ae=(p.vcaMode==='gate')
+      ? envADSR(vca.gain,t,dur,0.003,0.01,1,0.02,0.55,0)
+      : envADSR(vca.gain,t,dur,p.aeA,p.aeD,p.aeS,p.aeR,0.55,0);
+    F.out.connect(vca); vca.connect(dest);
+    const end=Math.max(ae,fe.end)+0.02;
+    stopAll(S,end); return end;
+  }
+};
+
+/* ---- PROPHET: two oscillators, poly-mod, 24 dB low-pass ---- */
+const BMOD_LP=80;
+ENGINES.prophet={
+  label:'Prophet (Sequential-style)',
+  trim:1.9,
+  desc:'Oscillator A + B (saw/triangle/pulse), Poly-Mod from the filter envelope and Osc B, resonant 24 dB low-pass. B can act as an LFO. (No oscillator sync.)',
+  sections:[
+    {title:'OSCILLATOR A',controls:[
+      S_('aOct','RANGE',[[-1,"16'"],[0,"8'"],[1,"4'"]],0),
+      R_('aFine','FINE',-50,50,0,1,v=>(v>0?'+':'')+v+' ct'),
+      T_('aSaw','SAW',true), T_('aPulse','PULSE',false),
+      R_('aPw','PULSE WIDTH',0.05,0.95,0.5,0.01,pctFmt),
+    ]},
+    {title:'OSCILLATOR B',controls:[
+      R_('bSemi','SEMITONES',-24,24,0,1,v=>(v>0?'+':'')+v+' st'),
+      R_('bFine','FINE',-50,50,6,1,v=>(v>0?'+':'')+v+' ct'),
+      T_('bSaw','SAW',true), T_('bTri','TRIANGLE',false), T_('bPulse','PULSE',false),
+      R_('bPw','PULSE WIDTH',0.05,0.95,0.5,0.01,pctFmt),
+      T_('bLo','LO FREQ (B = LFO)',false),
+    ]},
+    {title:'MIXER',controls:[
+      R_('aLevel','OSC A',0,1,0.7,0.01,pctFmt),
+      R_('bLevel','OSC B',0,1,0.6,0.01,pctFmt),
+      R_('noise','NOISE',0,1,0,0.01,pctFmt),
+      R_('drift','ANALOG DRIFT',0,1,0.3,0.01,pctFmt),
+    ]},
+    {title:'POLY-MOD',controls:[
+      R_('pmEnvAmt','FILTER ENV AMOUNT',0,1,0,0.01,pctFmt),
+      R_('pmBAmt','OSC B AMOUNT',0,1,0,0.01,pctFmt),
+      T_('pmToFreqA','→ FREQ A',false), T_('pmToPwA','→ PW A',false), T_('pmToFilt','→ FILTER',true),
+    ]},
+    {title:'LFO / WHEEL-MOD',controls:[
+      L_('lfoRate','RATE',0.1,30,4,'Hz'),
+      S_('lfoShape','SHAPE',[['triangle','Triangle'],['sawtooth','Saw'],['square','Square']],'triangle'),
+      R_('lfoAmt','AMOUNT',0,1,0,0.01,pctFmt),
+      T_('lfoToFreq','→ FREQ A+B',true), T_('lfoToPw','→ PW',false), T_('lfoToFilt','→ FILTER',false),
+    ]},
+    {title:'FILTER',controls:[
+      L_('cutoff','CUTOFF',30,16000,1500,'Hz'),
+      R_('res','RESONANCE',0,1,0.25,0.01,pctFmt),
+      R_('envAmt','ENV AMOUNT',0,1,0.5,0.01,pctFmt),
+      S_('keytrack','KEYBOARD',[[0,'Off'],[0.5,'Half'],[1,'Full']],1),
+    ]},
+    {title:'FILTER ENVELOPE',controls:ENV4('fe',0.01,0.4,0.3,0.4)},
+    {title:'AMP ENVELOPE',controls:ENV4('ae',0.01,0.3,0.8,0.3)},
+  ],
+  presets:{
+    'Brass':{aSaw:true,bSaw:true,bFine:8,cutoff:700,envAmt:0.7,feA:0.1,feD:0.5,feS:0.5,aeA:0.06,aeS:0.85,aeR:0.2,gate:0.8},
+    'Pulse Lead':{aSaw:false,aPulse:true,aPw:0.35,bSaw:false,bPulse:true,bPw:0.65,bFine:6,cutoff:2600,res:0.3,envAmt:0.4,
+      lfoAmt:0.5,lfoRate:5,lfoToFreq:false,lfoToPw:true,gate:0.6},
+    'Soft Pad':{aSaw:true,bSaw:true,bFine:12,aLevel:0.6,bLevel:0.6,cutoff:1200,res:0.1,envAmt:0.3,feA:0.6,feD:1.5,feS:0.6,feR:1.2,
+      aeA:0.6,aeD:1,aeS:0.85,aeR:1.4,chorus:2,gate:1.8},
+    'Poly-Mod Bell':{aSaw:false,aPulse:true,aPw:0.5,bSaw:false,bTri:true,bSemi:12,bFine:0,aLevel:0.8,bLevel:0.2,
+      pmBAmt:0.25,pmToFreqA:true,pmToFilt:true,pmEnvAmt:0.35,cutoff:3500,res:0.2,envAmt:0.2,feA:0.002,feD:0.8,feS:0,aeA:0.002,aeD:1.2,aeS:0,aeR:0.6,gate:0.35},
+    'Pluck Bass':{aSaw:true,aOct:-1,bSaw:true,bSemi:0,bFine:5,cutoff:260,res:0.35,envAmt:0.7,feA:0.002,feD:0.2,feS:0,aeA:0.003,aeD:0.3,aeS:0.5,aeR:0.12,gate:0.4},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
+    const dr=()=>(R()*2-1)*p.drift*8;
+    const mix=ctx.createGain(); mix.gain.value=0.33;
+    const fA=f0*Math.pow(2,p.aOct);
+    const fB=p.bLo ? 4*Math.pow(2,p.bSemi/12) : f0*Math.pow(2,p.bSemi/12);
+    const oscA=[], oscB=[];
+    const aBus=ctx.createGain(); aBus.gain.value=p.aLevel*0.7; aBus.connect(mix);
+    if(p.aSaw){ const o=makeOsc(ctx,'sawtooth',fA,t,S); o.detune.forEach(d=>d.value=p.aFine+dr()); o.out.connect(aBus); oscA.push(o); }
+    if(p.aPulse){ const o=makeOsc(ctx,'pulse',fA,t,S,{pw:p.aPw}); o.detune.forEach(d=>d.value=p.aFine+dr()); o.out.connect(aBus); oscA.push(o); }
+    const bOut=ctx.createGain();
+    if(p.bSaw){ const o=makeOsc(ctx,'sawtooth',fB,t,S); o.detune.forEach(d=>d.value=p.bFine+dr()); o.out.connect(bOut); oscB.push(o); }
+    if(p.bTri){ const o=makeOsc(ctx,'triangle',fB,t,S); o.detune.forEach(d=>d.value=p.bFine+dr()); o.out.connect(bOut); oscB.push(o); }
+    if(p.bPulse){ const o=makeOsc(ctx,'pulse',fB,t,S,{pw:p.bPw}); o.detune.forEach(d=>d.value=p.bFine+dr()); o.out.connect(bOut); oscB.push(o); }
+    if(!p.bLo && oscB.length){ const g=ctx.createGain(); g.gain.value=p.bLevel*0.7; bOut.connect(g); g.connect(mix); }
+    if(p.noise>0.001){ const n=noiseSrc(ctx,'white',t,S); const g=ctx.createGain(); g.gain.value=p.noise*0.6; n.connect(g); g.connect(mix); }
+
+    const F=lp24(ctx,p.cutoff*Math.pow(f0/261.63,p.keytrack),p.res);
+    mix.connect(F.in);
+    const fe=envSource(ctx,t,dur,p.feA,p.feD,p.feS,p.feR,S);
+    if(p.envAmt>0.001) modTo(ctx,fe.node,p.envAmt*6000,F.det);
+
+    const detA=[].concat(...oscA.map(o=>o.detune)), detB=[].concat(...oscB.map(o=>o.detune));
+    const pwA=oscA.filter(o=>o.pw);
+    if(p.pmEnvAmt>0.001){
+      if(p.pmToFreqA) modTo(ctx,fe.node,p.pmEnvAmt*2400,detA);
+      if(p.pmToPwA) pwA.forEach(o=>modTo(ctx,fe.node,p.pmEnvAmt*0.4/o.hz,[o.pw]));
+      if(p.pmToFilt) modTo(ctx,fe.node,p.pmEnvAmt*4800,F.det);
+    }
+    if(p.pmBAmt>0.001 && oscB.length){
+      if(p.pmToFreqA) modTo(ctx,bOut,p.pmBAmt*1200,detA);
+      if(p.pmToPwA) pwA.forEach(o=>modTo(ctx,bOut,p.pmBAmt*0.4/o.hz,[o.pw]));
+      if(p.pmToFilt){
+        // Audio-rate cutoff modulation makes a biquad unstable on low cutoffs, so B -> filter is band-limited to a
+        // wobble/growl range (audio-rate FM is available through -> FREQ A / -> PW A) and drives the gentle first stage only.
+        const sm=ctx.createBiquadFilter(); sm.type='lowpass'; sm.frequency.value=BMOD_LP; sm.Q.value=-3;
+        bOut.connect(sm); modTo(ctx,sm,p.pmBAmt*2400,[F.det[0]]);
+      }
+    }
+    if(p.lfoAmt>0.001){
+      const lfo=makeLfo(ctx,p.lfoShape,p.lfoRate,t,S,0);
+      if(p.lfoToFreq) modTo(ctx,lfo,p.lfoAmt*100,detA.concat(detB));
+      if(p.lfoToPw) oscA.concat(oscB).filter(o=>o.pw).forEach(o=>modTo(ctx,lfo,p.lfoAmt*0.4/o.hz,[o.pw]));
+      if(p.lfoToFilt) modTo(ctx,lfo,p.lfoAmt*2400,F.det);
+    }
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const ae=envADSR(vca.gain,t,dur,p.aeA,p.aeD,p.aeS,p.aeR,0.55,0);
+    F.out.connect(vca); vca.connect(dest);
+    const end=Math.max(ae,fe.end)+0.02;
+    stopAll(S,end); return end;
+  }
+};
+
+/* ---- DX7: six-operator FM ---- */
+const DX_ALGS={
+  1:{car:[1,3],mods:{1:[2],3:[4],4:[5],5:[6]},fb:6,txt:'6→5→4→3 · 2→1'},
+  2:{car:[1,3],mods:{1:[2],3:[4],4:[5],5:[6]},fb:2,txt:'6→5→4→3 · 2→1 (fb on 2)'},
+  3:{car:[1,4],mods:{1:[2],2:[3],4:[5],5:[6]},fb:6,txt:'3→2→1 · 6→5→4'},
+  5:{car:[1,3,5],mods:{1:[2],3:[4],5:[6]},fb:6,txt:'2→1 · 4→3 · 6→5'},
+  22:{car:[1,3,4,5],mods:{1:[2],3:[6],4:[6],5:[6]},fb:6,txt:'2→1 · 6→3,4,5'},
+  23:{car:[1,2,4,5],mods:{2:[3],4:[6],5:[6]},fb:6,txt:'3→2 · 6→4,5 · 1'},
+  24:{car:[1,2,3,4,5],mods:{3:[6],4:[6],5:[6]},fb:6,txt:'6→3,4,5 · 1 · 2'},
+  25:{car:[1,2,3,4,5],mods:{4:[6],5:[6]},fb:6,txt:'6→4,5 · 1 · 2 · 3'},
+  31:{car:[1,2,3,4,5],mods:{5:[6]},fb:6,txt:'6→5 · 1 · 2 · 3 · 4'},
+  32:{car:[1,2,3,4,5,6],mods:{},fb:6,txt:'six carriers (additive)'},
+};
+const DX_RATIOS=[0.5,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16].map(r=>[r,'×'+r]);
+const dxOp=(i,r,fine,det,lvl,A,D,S,Rr)=>[
+  S_('o'+i+'r','RATIO',DX_RATIOS,r),
+  R_('o'+i+'f','FINE',0,99,fine,1,v=>'+'+v+'%'),
+  R_('o'+i+'d','DETUNE',-7,7,det,1,v=>(v>0?'+':'')+v),
+  R_('o'+i+'l','LEVEL',0,99,lvl,1,v=>String(v)),
+  L_('o'+i+'A','ATTACK',0.001,8,A,'s'),
+  L_('o'+i+'D','DECAY',0.005,8,D,'s'),
+  R_('o'+i+'S','SUSTAIN',0,1,S,0.01,pctFmt),
+  L_('o'+i+'R','RELEASE',0.005,8,Rr,'s'),
+];
+function dxOpsPreset(a){ // a = [[r,f,d,l,A,D,S,R] x6]
+  const o={}; a.forEach((x,k)=>{ const i=k+1; o['o'+i+'r']=x[0]; o['o'+i+'f']=x[1]; o['o'+i+'d']=x[2]; o['o'+i+'l']=x[3];
+    o['o'+i+'A']=x[4]; o['o'+i+'D']=x[5]; o['o'+i+'S']=x[6]; o['o'+i+'R']=x[7]; }); return o;
+}
+const DX_OFF=[1,0,0,0,0.001,0.3,0,0.2];
+ENGINES.dx7={
+  label:'DX (Yamaha-style FM)',
+  trim:0.75,
+  desc:'Six sine operators with per-operator ratio, level and envelope, a selection of 10 classic algorithm topologies, operator feedback, and a global LFO. Carriers are the audible ops; modulators add harmonics.',
+  sections:[
+    {title:'ALGORITHM',controls:[
+      S_('alg','ALGORITHM',Object.keys(DX_ALGS).map(k=>[+k,k+' · '+DX_ALGS[k].txt]),5),
+      R_('fb','FEEDBACK',0,7,0,1,v=>String(v)),
+      L_('lfoRate','LFO RATE',0.1,30,5,'Hz'),
+      S_('lfoWave','LFO WAVE',[['sine','Sine'],['triangle','Triangle'],['sawtooth','Saw'],['square','Square']],'sine'),
+      L_('lfoDelay','LFO DELAY',0.01,3,0.01,'s'),
+      R_('lfoPmd','PITCH MOD',0,1,0,0.01,pctFmt),
+      R_('lfoAmd','AMP MOD',0,1,0,0.01,pctFmt),
+    ]},
+  ].concat([1,2,3,4,5,6].map(i=>({title:'OPERATOR '+i,controls:dxOp(i,1,0,0,i===1?99:(i===2?70:0),0.002,0.8,i===1?0.3:0.1,0.3)}))),
+  presets:{
+    'E.Piano':Object.assign({alg:5,fb:0},dxOpsPreset([
+      [1,0,0,99,0.001,1.8,0,0.4],[14,0,0,58,0.001,0.12,0,0.1],
+      [1,0,3,92,0.001,2.4,0,0.5],[1,0,0,72,0.001,1.2,0,0.3],
+      DX_OFF,DX_OFF]),{gate:0.6,chorus:1}),
+    'Bell':Object.assign({alg:5,fb:0},dxOpsPreset([
+      [1,0,0,99,0.001,4,0,2.5],[3,17,0,78,0.001,2.2,0,1.2],
+      [4,0,2,70,0.001,3,0,2],[5,0,0,52,0.001,1.4,0,0.8],
+      DX_OFF,DX_OFF]),{gate:0.3,reverbMix:0.3}),
+    'FM Bass':Object.assign({alg:5,fb:3},dxOpsPreset([
+      [1,0,0,99,0.001,0.4,0.85,0.1],[1,0,0,76,0.001,0.16,0.15,0.1],
+      [0.5,0,0,85,0.001,0.4,0.85,0.1],[1,0,0,60,0.001,0.12,0.1,0.1],
+      DX_OFF,[1,0,0,0,0.001,0.3,0,0.2]]),{gate:0.5}),
+    'Glass Pad':Object.assign({alg:5,fb:0},dxOpsPreset([
+      [1,0,0,99,1.2,1,0.8,1.6],[1,0,0,34,1.5,1.2,0.7,1.6],
+      [1,0,5,92,1.4,1,0.8,1.6],[2,0,0,30,1.6,1.2,0.6,1.6],
+      [1,0,-5,92,1.3,1,0.8,1.6],[3,0,0,24,1.8,1.2,0.5,1.6]]),{gate:2,chorus:2,reverbMix:0.3,reverbSize:3.2}),
+    'Brass':Object.assign({alg:5,fb:4},dxOpsPreset([
+      [1,0,0,99,0.05,0.3,0.8,0.15],[1,0,0,82,0.07,0.35,0.55,0.15],
+      [1,0,3,92,0.05,0.3,0.8,0.15],[1,0,0,76,0.08,0.35,0.5,0.15],
+      DX_OFF,DX_OFF]),{gate:0.8}),
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], f0=mtof(midi), alg=DX_ALGS[p.alg]||DX_ALGS[5];
+    const isCar={}; alg.car.forEach(c=>isCar[c]=true);
+    const dB=l=>Math.pow(10,(l-99)*0.75/20);
+    const mix=ctx.createGain(); mix.gain.value=0.5/Math.sqrt(alg.car.length); mix.connect(dest);
+    const lfo=(p.lfoPmd>0.001||p.lfoAmd>0.001)?makeLfo(ctx,p.lfoWave,p.lfoRate,t,S,p.lfoDelay):null;
+    const ops={}; let end=t;
+    for(let i=1;i<=6;i++){
+      const lvl=p['o'+i+'l']; if(lvl<=0) continue;
+      const hz=clampN(f0*p['o'+i+'r']*(1+p['o'+i+'f']/100),0.5,ctx.sampleRate*0.45);
+      const osc=ctx.createOscillator();
+      if(i===alg.fb && p.fb>0) osc.setPeriodicWave(fbWave(ctx,p.fb)); else osc.type='sine';
+      osc.frequency.value=hz; osc.detune.value=p['o'+i+'d']*1.4;
+      const eg=ctx.createGain(); eg.gain.value=0;
+      end=Math.max(end,envADSR(eg.gain,t,dur,p['o'+i+'A'],p['o'+i+'D'],p['o'+i+'S'],p['o'+i+'R'],1,0));
+      osc.connect(eg); osc.start(t); S.push(osc);
+      if(lfo&&p.lfoPmd>0.001) modTo(ctx,lfo,p.lfoPmd*150,[osc.detune]);
+      ops[i]={osc,eg,hz,lvl};
+    }
+    Object.keys(ops).forEach(k=>{
+      const i=+k, o=ops[i], out=ctx.createGain();
+      o.eg.connect(out);
+      if(isCar[i]){
+        const a=dB(o.lvl); out.gain.value=a; out.connect(mix);
+        if(lfo&&p.lfoAmd>0.001) modTo(ctx,lfo,a*p.lfoAmd*0.5,[out.gain]);
+      }else{
+        out.gain.value=dB(o.lvl)*10*o.hz;          // modulation index (≈ up to 10) × modulator frequency = deviation in Hz
+        Object.keys(alg.mods).forEach(tg=>{ if(alg.mods[tg].indexOf(i)>=0 && ops[tg]) out.connect(ops[tg].osc.frequency); });
+      }
+    });
+    end+=0.02; stopAll(S,end); return end;
+  }
+};
+
+/* ---- STRINGS: string-ensemble pad ---- */
+ENGINES.strings={
+  label:'Strings (Ensemble)',
+  trim:1.2,
+  desc:'Detuned saw footages (16\'/8\'/4\') through a soft low-pass with slow attack. Chorus defaults to I+II for the ensemble shimmer.',
+  over:{chorus:3},
+  sections:[
+    {title:'FOOTAGES',controls:[
+      R_('s16','16\'',0,1,0.4,0.01,pctFmt),R_('s8','8\'',0,1,0.8,0.01,pctFmt),R_('s4','4\'',0,1,0.5,0.01,pctFmt),
+      S_('wave','WAVE',[['sawtooth','Saw'],['square','Square'],['triangle','Triangle']],'sawtooth'),
+      R_('spread','ENSEMBLE SPREAD',0,60,16,1,v=>v+' ct'),
+      R_('drift','ANALOG DRIFT',0,1,0.2,0.01,pctFmt),
+    ]},
+    {title:'TONE & ENVELOPE',controls:[
+      L_('bright','BRIGHTNESS',200,12000,3500,'Hz'),
+      L_('aeA','ATTACK',0.005,6,0.35,'s'),
+      L_('aeR','RELEASE',0.02,8,0.6,'s'),
+    ]},
+  ],
+  presets:{
+    'Ensemble':{gate:1.4},
+    'Slow Swell':{aeA:1.6,aeR:1.8,bright:2400,gate:2.5,reverbMix:0.3,reverbSize:3.2},
+    'Staccato':{aeA:0.02,aeR:0.2,bright:5000,s16:0.2,s8:0.9,s4:0.7,gate:0.25},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
+    const mix=ctx.createGain(); mix.gain.value=0.2;
+    [[p.s16,-1],[p.s8,0],[p.s4,1]].forEach(([lvl,oct])=>{
+      if(lvl<=0.001) return;
+      [-1,1].forEach(sg=>{
+        const o=makeOsc(ctx,p.wave,f0*Math.pow(2,oct),t,S);
+        o.detune.forEach(d=>d.value=sg*p.spread*0.5+(R()*2-1)*p.drift*6);
+        const g=ctx.createGain(); g.gain.value=lvl; o.out.connect(g); g.connect(mix);
+      });
+    });
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.Q.value=0.6;
+    lp.frequency.value=clampN(p.bright*Math.pow(f0/261.63,0.4),100,ctx.sampleRate*0.45);
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const end=envADSR(vca.gain,t,dur,p.aeA,0.05,1,p.aeR,0.6,0);
+    mix.connect(lp); lp.connect(vca); vca.connect(dest);
+    stopAll(S,end+0.02); return end+0.02;
+  }
+};
+
+/* ---- STRUM: Karplus-Strong plucked string / chord strummer ----
+   Web Audio's DelayNode can't loop faster than one render quantum, so each string is computed in JS
+   (delay line + loop low-pass + all-pass tuning) into an AudioBuffer, then played like a sample.
+   Noise is seeded, so live, preview and WAV export are identical. */
+const KS_CHORDS={
+  single:[0], octave:[0,12], power:[0,7,12], major:[0,4,7,12], minor:[0,3,7,12], sus4:[0,5,7,12],
+  maj7:[0,4,7,11], min7:[0,3,7,10], open6:[-12,-5,0,4,7,12], min6:[-12,-5,0,3,7,12]
+};
+function ksRender(sr,f,o,rng){
+  const D=sr/f;
+  const a=o.a;
+  let Dp=D-(1-a), L=Math.floor(Dp), fr=Dp-L;
+  if(fr<0.1){ L-=1; fr+=1; }
+  L=Math.max(2,L);
+  const c=(1-fr)/(1+fr);
+  // excitation
+  const ex=new Float32Array(L);
+  if(o.exc==='saw'){ for(let i=0;i<L;i++) ex[i]=(i/L)*2-1+(rng()*2-1)*0.05; }
+  else if(o.exc==='click'){ for(let i=0;i<L;i++) ex[i]=(i<4?(1-i/4):0)+(rng()*2-1)*0.04; }
+  else{
+    for(let i=0;i<L;i++) ex[i]=rng()*2-1;
+    if(o.exc==='soft'){
+      const k=0.06+0.94*o.excBright*o.excBright; let y=0;
+      for(let i=0;i<L;i++){ y+=k*(ex[i]-y); ex[i]=y; }
+    }
+  }
+  const pp=Math.round(o.pickPos*L);
+  if(pp>0 && pp<L){ for(let i=L-1;i>=pp;i--) ex[i]-=ex[i-pp]; }
+  let mean=0; for(let i=0;i<L;i++) mean+=ex[i]; mean/=L;
+  let pk=1e-6; for(let i=0;i<L;i++){ ex[i]-=mean; pk=Math.max(pk,Math.abs(ex[i])); }
+  for(let i=0;i<L;i++) ex[i]*=o.amp/pk;
+  // loop gain for the requested RT60, compensated for the loop low-pass magnitude at f0
+  const w=TWO_PI*f/sr, mr=a+(1-a)*Math.cos(w), mi=(1-a)*Math.sin(w), mag=Math.max(0.3,Math.hypot(mr,mi));
+  const g=Math.min(0.9995, Math.pow(10,-3/(Math.max(0.05,o.T)*f))/mag);
+  const N=Math.max(64,Math.floor(Math.min(o.T*1.05+0.05,10)*sr));
+  const out=new Float32Array(N), ring=ex;
+  let p=0, prev=0, apx=0, apy=0;
+  for(let n=0;n<N;n++){
+    const x0=ring[p];
+    out[n]=x0;
+    const lp=a*x0+(1-a)*prev; prev=x0;
+    const y=c*lp+apx-c*apy; apx=lp; apy=y;
+    ring[p]=y*g;
+    if(++p>=L) p=0;
+  }
+  const fade=Math.min(N>>1,Math.floor(0.05*sr));
+  for(let i=0;i<fade;i++) out[N-1-i]*=i/fade;
+  return out;
+}
+function ksBuffer(ctx,p,midi,bucket){
+  const cc=ctxCache(ctx);
+  if(!cc.ks) cc.ks=new WeakMap();
+  let m=cc.ks.get(p); if(!m){ m=new Map(); cc.ks.set(p,m); }
+  const key=midi+'|'+bucket;
+  let buf=m.get(key); if(buf) return buf;
+  if(m.size>96) m.clear();
+  const sr=ctx.sampleRate;
+  const f=clampN(mtof(midi+p.detune/100),30,sr/6);
+  const T=clampN(p.decay*(1-0.85*p.mute)*clampN(Math.pow(261.6/f,p.keyDecay*0.7),0.3,3),0.1,10);
+  const a=clampN(0.999-p.damp*0.5-0.25*p.mute,0.5,0.999);
+  const rng=makeRng((bucket+0.5)/4+midi*0.00137);
+  const data=ksRender(sr,f,{a,T,exc:p.exc,excBright:p.excBright,pickPos:p.pickPos,amp:0.55*(1-p.velVar*0.5*rng())},rng);
+  buf=ctx.createBuffer(1,data.length,sr); buf.copyToChannel(data,0);
+  m.set(key,buf);
+  return buf;
+}
+ENGINES.strum={
+  label:'Strum (Karplus-Strong)',
+  trim:1,
+  desc:'Physically modeled plucked string: a noise burst circulating in a tuned delay loop with a damping filter. Play single notes or whole strummed chords with adjustable spread and direction. Rendered per note in code, so it is identical in live play, preview and WAV export.',
+  sections:[
+    {title:'EXCITATION (PICK)',controls:[
+      S_('exc','PLUCK TYPE',[['soft','Soft pick'],['noise','Noise burst'],['saw','Ramp (round)'],['click','Click']],'soft'),
+      R_('excBright','PICK BRIGHTNESS',0,1,0.7,0.01,pctFmt),
+      R_('pickPos','PICK POSITION',0.02,0.5,0.18,0.01,v=>Math.round(v*100)+'%'),
+      R_('velVar','RANDOM VELOCITY',0,1,0.3,0.01,pctFmt),
+    ]},
+    {title:'STRING',controls:[
+      L_('decay','SUSTAIN (RT60)',0.2,10,2.5,'s'),
+      R_('damp','DAMPING',0,1,0.35,0.01,pctFmt),
+      R_('keyDecay','KEY TRACK DECAY',0,1,0.5,0.01,pctFmt),
+      R_('mute','PALM MUTE',0,1,0,0.01,pctFmt),
+      R_('detune','DETUNE',-50,50,0,1,v=>(v>0?'+':'')+v+' ct'),
+    ]},
+    {title:'CHORD & STRUM',controls:[
+      S_('chord','CHORD',[['single','Single note'],['octave','Octaves'],['power','Power chord'],['major','Major'],['minor','Minor'],['sus4','Sus4'],['maj7','Major 7th'],['min7','Minor 7th'],['open6','Open 6-string major'],['min6','Open 6-string minor']],'single'),
+      R_('strum','STRUM SPREAD',0,250,45,1,v=>Math.round(v)+' ms'),
+      S_('dir','DIRECTION',[['down','Down'],['up','Up'],['alt','Alternate']],'down'),
+      R_('stereo','STEREO SPREAD',0,1,0.4,0.01,pctFmt),
+    ]},
+    {title:'BODY & MUTING',controls:[
+      L_('tone','BODY TONE',300,12000,6000,'Hz'),
+      R_('body','BODY RESONANCE',0,1,0.25,0.01,pctFmt),
+      T_('stopOnRelease','MUTE AT NOTE END',false),
+      L_('relTime','MUTE TIME',0.02,1,0.12,'s'),
+    ]},
+  ],
+  presets:{
+    'Nylon':{exc:'soft',excBright:0.45,damp:0.55,decay:1.8,tone:3500,body:0.45,gate:0.5},
+    'Steel Strum':{exc:'noise',chord:'open6',strum:70,decay:3.2,damp:0.25,excBright:0.9,stereo:0.7,body:0.3,reverbMix:0.15,gate:0.8},
+    'Harp':{exc:'saw',decay:4.5,damp:0.2,keyDecay:0.3,pickPos:0.3,chord:'octave',strum:90,stereo:0.8,reverbMix:0.3,reverbSize:3.2,gate:1},
+    'Muted Pick':{exc:'click',mute:0.75,decay:0.9,tone:2500,body:0.5,gate:0.2,stopOnRelease:true,relTime:0.05},
+    'Power Chord':{exc:'noise',chord:'power',strum:25,decay:2.2,damp:0.45,excBright:0.85,gate:0.7},
+    'Minor Pad Strum':{exc:'soft',chord:'min7',strum:130,decay:5,damp:0.3,stereo:0.9,chorus:2,reverbMix:0.35,reverbSize:3.2,gate:1.5},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const seed=((ev&&ev.seed!=null?ev.seed:0.5)%1+1)%1;
+    const bucket=Math.floor(seed*4)&3;
+    const ch=KS_CHORDS[p.chord]||[0], n=ch.length;
+    const order=ch.map((_,i)=>i);
+    if(p.dir==='up' || (p.dir==='alt' && (bucket&1))) order.reverse();
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=clampN(p.tone,200,ctx.sampleRate*0.45); lp.Q.value=0.5;
+    const pk=ctx.createBiquadFilter(); pk.type='peaking'; pk.frequency.value=190; pk.Q.value=1.2; pk.gain.value=p.body*9;
+    lp.connect(pk); pk.connect(dest);
+    const norm=1/Math.sqrt(n);
+    let end=t;
+    order.forEach((idx,k)=>{
+      const m=midi+ch[idx];
+      const when=t+(n>1 ? k*(p.strum/1000)/(n-1) : 0);
+      const src=ctx.createBufferSource(); src.buffer=ksBuffer(ctx,p,m,bucket);
+      const gv=norm*(0.9+0.2*((bucket*7+k*3)%5)/4); const gn=ctx.createGain(); gn.gain.value=gv;
+      src.connect(gn);
+      if(n>1 && p.stereo>0.01){
+        const pn=ctx.createStereoPanner(); pn.pan.value=clampN(((k/(n-1))*2-1)*p.stereo,-1,1);
+        gn.connect(pn); pn.connect(lp);
+      } else gn.connect(lp);
+      let e=when+src.buffer.duration;
+      if(p.stopOnRelease){
+        const rel=when>t+dur?when:t+dur;
+        gn.gain.setValueAtTime(gv,rel); gn.gain.linearRampToValueAtTime(0,rel+Math.max(0.01,p.relTime));
+        e=Math.min(e,rel+Math.max(0.01,p.relTime)+0.02);
+      }
+      src.start(when); src.stop(e);
+      end=Math.max(end,e);
+    });
+    return end;
+  }
+};
+
+/* ---------- engine registry helpers ---------- */
+const ENGINE_ORDER=['init','moog','juno','prophet','dx7','strings','strum'];
+function engineSections(name){ return ENGINES[name].sections.concat(COMMON_SECTIONS); }
+function defaultsFor(name){
+  const d={};
+  engineSections(name).forEach(s=>s.controls.forEach(c=>{ d[c.id]=c.def; }));
+  Object.assign(d,ENGINES[name].over||{});
+  return d;
+}
+function paramsFor(name,preset,base){
+  const d=defaultsFor(name);
+  if(preset && ENGINES[name].presets[preset]) Object.assign(d,ENGINES[name].presets[preset]);
+  return d;
+}
+function sanitizeParams(name,params){
+  const d=defaultsFor(name), out=Object.assign({},d);
+  if(params) Object.keys(d).forEach(k=>{ if(params[k]!==undefined && typeof params[k]===typeof d[k]) out[k]=params[k]; });
+  return out;
+}
+
+/* One note through an engine, with the per-engine level trim so switching engines doesn't jump in volume. */
+function playEngineNote(ctx,busInput,engine,p,midi,t,dur,ev){
+  const E=ENGINES[engine]||ENGINES.init;
+  const g=ctx.createGain(); g.gain.value=E.trim||1; g.connect(busInput);
+  return E.play(ctx,g,p,midi,t,dur,ev);
+}
+
+/* ---------- scheduling a list of recorded events onto any context (preview + WAV export) ---------- */
+function scheduleEvents(ctx,dest,events,origin,startAt){
+  const buses=new Map(); let end=startAt, tail=0;
+  events.forEach(e=>{
+    let b=buses.get(e.snap);
+    if(!b){ b=createBus(ctx,dest,e.snap.p); buses.set(e.snap,b); tail=Math.max(tail,b.tail(e.snap.p)); }
+    const t=startAt+(e.time-origin);
+    const eEnd=playEngineNote(ctx,b.input,e.snap.engine,e.snap.p,e.note,t,e.dur,{from:e.from,seed:e.seed,env:e.snap.env||null});
+    end=Math.max(end,eEnd);
+  });
+  return {end,tail,buses:Array.from(buses.values())};
+}
+/* ==== SYNTH CORE END ==== */
+
+/* ---------- SOUND tab: engine / preset / schema-driven controls ---------- */
+function getSnap(v){
+  if(!v._snap) v._snap = {engine:v.synth.engine, p:Object.assign({}, v.synth.params), env:(v.synth.engine==='init' ? activeEnv(v) : null)};
+  return v._snap;
+}
+/* how long the note is held, in seconds (Init Pluck without ENV is a fixed short pluck) */
+function noteDur(snap){
+  if(snap.engine==='init') return snap.env ? snap.env.gate/1000 : 0.3;
+  return snap.p.gate*60/bpm;
+}
+function getLiveBus(v){
+  if(!v.bus) v.bus = createBus(audioCtx, masterGain, v.synth.params);
+  return v.bus;
+}
+function disposeVoiceBus(v){
+  if(v.bus){ try{ v.bus.dispose(); }catch(e){} v.bus=null; }
+}
+function fmtTime(s){ return s<1 ? Math.round(s*1000)+' ms' : (s<10 ? s.toFixed(2) : s.toFixed(1))+' s'; }
+function fmtCtl(c,val){
+  if(c.type==='log') return c.unit==='Hz' ? (val<100? val.toFixed(1) : Math.round(val))+' Hz' : fmtTime(val);
+  if(c.fmt) return c.fmt(val);
+  const d = c.step>=1 ? 0 : (c.step>=0.1 ? 1 : 2);
+  return Number(val).toFixed(d);
+}
+const LOG_RES = 1000;
+function logToPos(c,val){ return Math.round(Math.log(val/c.min)/Math.log(c.max/c.min)*LOG_RES); }
+function posToLog(c,pos){ return c.min*Math.pow(c.max/c.min, pos/LOG_RES); }
+
+function applyVoiceSynthChange(v){
+  v._snap = null;
+  if(v.bus) v.bus.update(v.synth.params, false);
+}
+
+function buildSoundPane(v, el){
+  const pane = el.querySelector('.pane-sound');
+  const envp = el.querySelector('.envpanel');   // keep the ENV panel node across rebuilds
+  const syn = v.synth;
+  const E = ENGINES[syn.engine];
+  const presetNames = Object.keys(E.presets);
+  pane.innerHTML = `
+    <div class="soundtop">
+      <div class="field"><label>SYNTH</label>
+        <select class="engSel">${ENGINE_ORDER.map(n=>`<option value="${n}" ${n===syn.engine?'selected':''}>${ENGINES[n].label}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>PRESET</label>
+        <select class="presetSel">
+          <option value="">${syn.preset ? '— Init (defaults) —' : (syn.dirty ? '— Edited —' : '— Init (defaults) —')}</option>
+          ${presetNames.map(n=>`<option value="${n}" ${n===syn.preset?'selected':''}>${n}</option>`).join('')}
+        </select>
+      </div>
+      <button class="chip auditionBtn" title="Play a test note through this voice">▶ AUDITION</button>
+    </div>
+    <div class="enginedesc">${E.desc}</div>
+    <div class="sections"></div>`;
+  const secEl = pane.querySelector('.sections');
+  if(envp) pane.insertBefore(envp, secEl);
+  engineSections(syn.engine).forEach(sec=>{
+    const g = document.createElement('div');
+    g.className='sgroup';
+    g.innerHTML = `<div class="sgtitle">${sec.title}</div><div class="sgrid"></div>`;
+    const grid = g.querySelector('.sgrid');
+    sec.controls.forEach(c=>{
+      if(c.id==='gate' && syn.engine==='init') return;   // Init Pluck length comes from its fixed pluck or the ENV gate
+      const val = syn.params[c.id];
+      const w = document.createElement('div');
+      w.className='sctl';
+      if(c.type==='toggle'){
+        w.innerHTML = `<label>${c.label}</label><button class="chip tgl ${val?'on':''}" data-id="${c.id}">${val?'ON':'OFF'}</button>`;
+        w.querySelector('button').addEventListener('click',e=>{
+          const nv = !syn.params[c.id];
+          setSynthParam(v, c.id, nv);
+          e.target.classList.toggle('on',nv);
+          e.target.textContent = nv?'ON':'OFF';
+        });
+      } else if(c.type==='select'){
+        w.innerHTML = `<label>${c.label}</label><select data-id="${c.id}">${c.options.map(o=>`<option value="${o[0]}" ${String(o[0])===String(val)?'selected':''}>${o[1]}</option>`).join('')}</select>`;
+        w.querySelector('select').addEventListener('change',e=>{
+          const raw = e.target.value;
+          const first = c.options[0][0];
+          setSynthParam(v, c.id, typeof first==='number' ? parseFloat(raw) : raw);
+        });
+      } else {
+        const isLog = c.type==='log';
+        w.innerHTML = `<label>${c.label} <span class="sv" data-v="${c.id}">${fmtCtl(c,val)}</span></label>
+          <input type="range" data-id="${c.id}" ${isLog ? `min="0" max="${LOG_RES}" step="1" value="${logToPos(c,val)}"` : `min="${c.min}" max="${c.max}" step="${c.step}" value="${val}"`}>`;
+        w.querySelector('input').addEventListener('input',e=>{
+          const nv = isLog ? posToLog(c, parseFloat(e.target.value)) : parseFloat(e.target.value);
+          setSynthParam(v, c.id, nv);
+          w.querySelector('.sv').textContent = fmtCtl(c,nv);
+        });
+      }
+      grid.appendChild(w);
+    });
+    secEl.appendChild(g);
+  });
+
+  pane.querySelector('.engSel').addEventListener('change',e=>{
+    syn.engine = e.target.value;
+    syn.preset = '';
+    syn.params = defaultsFor(syn.engine);
+    syn.dirty = false;
+    v._snap = null;
+    if(v.bus) v.bus.update(syn.params, false);
+    buildSoundPane(v, el);
+    updateEngineTag(v, el);
+  });
+  pane.querySelector('.presetSel').addEventListener('change',e=>{
+    syn.preset = e.target.value;
+    syn.params = paramsFor(syn.engine, syn.preset);
+    syn.dirty = false;
+    v._snap = null;
+    if(v.bus) v.bus.update(syn.params, false);
+    buildSoundPane(v, el);
+    updateEngineTag(v, el);
+  });
+  pane.querySelector('.auditionBtn').addEventListener('click',()=>auditionVoice(v));
+}
+
+function setSynthParam(v, id, val){
+  const syn = v.synth;
+  syn.params[id] = val;
+  if(id==='level'){ /* volume is a mix setting, not part of the sound: keep the preset name */ }
+  else if(syn.preset){ // editing a preset makes it a custom sound; keep the name visible as "edited"
+    syn.preset = ''; syn.dirty = true;
+    const el = document.querySelector(`.voice[data-id="${v.id}"]`);
+    if(el){
+      const ps = el.querySelector('.presetSel');
+      if(ps){ ps.options[0].textContent='— Edited —'; ps.value=''; }
+      updateEngineTag(v, el);
+    }
+  } else if(!syn.dirty){
+    syn.dirty = true;
+  }
+  if(id==='level'){ const el = document.querySelector(`.voice[data-id="${v.id}"]`); if(el) syncLevelUI(v, el); }
+  applyVoiceSynthChange(v);
+}
+
+function updateEngineTag(v, el){
+  syncLevelUI(v, el);
+  if(el._syncEnv) el._syncEnv();
+  const tag = el.querySelector('.enginetag');
+  if(!tag) return;
+  const E = ENGINES[v.synth.engine];
+  tag.textContent = E.label.split(' (')[0] + (v.synth.preset ? ' · '+v.synth.preset : (v.synth.dirty ? ' · edited' : ''));
+}
+
+function auditionVoice(v){
+  ensureAudio();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  const root = 60 + rootIndex + v.octave*12;
+  const bus = getLiveBus(v);
+  const snap = getSnap(v);
+  playEngineNote(audioCtx, bus.input, snap.engine, snap.p, root, audioCtx.currentTime+0.02, noteDur(snap), {from:null, seed:0.5, env:snap.env});
+}
+
+function switchVoiceTab(el, which){
+  el.querySelectorAll('.vtab').forEach(b=>b.classList.toggle('active', b.dataset.tab===which));
+  el.querySelectorAll('.vpane').forEach(p=>p.classList.toggle('hidden', !p.classList.contains('pane-'+which)));
+}
+
+function syncLevelUI(v, el){
+  const pct = Math.round(v.synth.params.level*100);
+  const hv = el.querySelector('.voiceVol'); if(hv) hv.value = pct;
+  const hl = el.querySelector('.vvolv'); if(hl) hl.textContent = pct;
+  const pv = el.querySelector('.pane-sound input[data-id="level"]'); if(pv) pv.value = v.synth.params.level;
+  const pl = el.querySelector('.pane-sound .sv[data-v="level"]'); if(pl) pl.textContent = pct+'%';
+}
+function restoreSynth(sv){
+  // Older saved patterns only stored a basic waveform ('tone'); map those onto the Init engine.
+  if(!sv.synth || !ENGINES[sv.synth.engine]){
+    const params = defaultsFor('init');
+    if(['sine','triangle','sawtooth','square'].includes(sv.tone)) params.wave = sv.tone;
+    return {engine:'init', preset:'', dirty:false, params};
+  }
+  const e = sv.synth.engine;
+  return {engine:e, preset:(sv.synth.preset && ENGINES[e].presets[sv.synth.preset]) ? sv.synth.preset : '',
+          dirty:!!sv.synth.dirty, params:sanitizeParams(e, sv.synth.params)};
+}
+
 /* ---------- voice model ---------- */
 function makeVoice(){
   const idx = voices.length;
@@ -2172,14 +3338,14 @@ function makeVoice(){
     logic: LOGIC_OPS[idx % LOGIC_OPS.length],
     lfoType:'sine',
     lfoRate:0.3,
-    tone:'triangle',
+    synth:{engine:'init', preset:'', dirty:false, params:defaultsFor('init')},
+    bus:null, prevNote:null, _snap:null,
     octave:0,
     patternLength:8,
     predictability:35,
     pattern:new Array(8).fill(null),
     stepCount:0,
     seed: Math.random()*1000,
-    gainNode:null,
     noteHistory:[],
     lastNote:null,
     harmonicLink:false,
@@ -2201,21 +3367,13 @@ function midiToFreq(m){ return 440*Math.pow(2,(m-69)/12); }
 function ensureAudio(){
   if(!audioCtx){
     audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = document.getElementById('volSlider').value/100;
-    masterGain.connect(jam ? jam.speakers() : audioCtx.destination); // the page's speakers (silent while Discobot carries the sound)
+    // master chain (compressor + soft clip, volume last); the node returned is what Jam Link routes and taps
+    masterGain = makeMaster(audioCtx, document.getElementById('volSlider').value/100, jam ? jam.speakers() : audioCtx.destination); // the page's speakers (silent while Discobot carries the sound)
     if(jam) jam.tapAudio(masterGain); // lets people in other places hear this app
   }
-  voices.forEach(v=>{
-    if(!v.gainNode){
-      v.gainNode = audioCtx.createGain();
-      v.gainNode.gain.value = 1;
-      v.gainNode.connect(masterGain);
-    }
-  });
 }
 
-/* ---------- note voice (shared by live play, the export preview and the WAV render) ----------
+/* ---------- Init Pluck envelope settings (the note itself is the Init engine in the synth core) ----------
    env null  → the original fixed pluck: 8 ms attack, ~0.3 s exponential fall.
    env given → ADSR: attack to the peak, decay toward the sustain level, held until the gate
    length is up, then release. Values are worked out ahead of time (no cancelAndHoldAtTime) so
@@ -2241,41 +3399,10 @@ function envLevelAt(env, t){
   if(t <= A) return ENV_PEAK * (t/A);
   return ENV_PEAK*S + (ENV_PEAK - ENV_PEAK*S) * Math.exp(-(t-A)/(D/4));
 }
-function synthVoiceNote(ctx, out, midi, time, tone, env){
-  const osc = ctx.createOscillator();
-  osc.type = tone;
-  osc.frequency.setValueAtTime(midiToFreq(midi), time);
-  const filt = ctx.createBiquadFilter();
-  filt.type='lowpass';
-  filt.frequency.setValueAtTime(midiToFreq(midi+18), time);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, time);
-  let end;
-  if(!env){
-    g.gain.linearRampToValueAtTime(ENV_PEAK, time+0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, time+0.32);
-    end = time+0.36;
-  } else {
-    const A = env.a/1000, D = env.d/1000, R = env.r/1000, gate = env.gate/1000;
-    const tRel = time + gate;
-    if(gate < A){
-      g.gain.linearRampToValueAtTime(envLevelAt(env, gate), tRel);   // released mid-attack
-    } else {
-      g.gain.linearRampToValueAtTime(ENV_PEAK, time+A);
-      g.gain.setTargetAtTime(ENV_PEAK*env.s/100, time+A, D/4);
-      g.gain.setValueAtTime(envLevelAt(env, gate), tRel);
-    }
-    g.gain.setTargetAtTime(0, tRel, R/5);
-    end = tRel + R + 0.05;
-  }
-  osc.connect(filt); filt.connect(g); g.connect(out);
-  osc.start(time);
-  osc.stop(end);
-}
-
-function playNote(v, midi, time){
+function playNote(v, midi, time, snap, seed){
   if(v.muted) return;
-  synthVoiceNote(audioCtx, v.gainNode, midi, time, v.tone, activeEnv(v));
+  const bus = getLiveBus(v);
+  playEngineNote(audioCtx, bus.input, snap.engine, snap.p, midi, time, noteDur(snap), {from:v.prevNote, seed, env:snap.env});
 
   const delayMs = Math.max(0,(time-audioCtx.currentTime)*1000);
   setTimeout(()=>flashStep(v),delayMs);
@@ -2439,12 +3566,16 @@ function triggerVoice(v, time){
     }
   }
   const note = baseNote + v.octave*12; // live octave transpose, independent of pattern lock
-  playNote(v, note, time);
+  const snap = getSnap(v);
+  const seed = (v.seed*0.61803 + v.stepCount*0.75488) % 1;
+  playNote(v, note, time, snap, seed);
+  const from = v.prevNote;
+  v.prevNote = note;
   v.stepCount++;
   v.lastStep = step;
   v.lastNote = note;
   v.noteHistory.push({time, note});
-  if(!v.muted) recordBuffer.push({time, note, voiceId:v.id, color:v.color, tone:v.tone, env:activeEnv(v)});
+  if(!v.muted) recordBuffer.push({time, note, dur:noteDur(snap), voiceId:v.id, color:v.color, snap, from, seed});
   renderVoicePattern(v);
   updateHarmonicReadout(v);
 }
@@ -2514,7 +3645,7 @@ function resolveClockColor(clock){
 
 function drawScope(v){
   const canvas = document.querySelector(`.voice[data-id="${v.id}"] .scopeCanvas`);
-  if(!canvas) return;
+  if(!canvas || canvas.offsetParent===null) return;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   const noteH = 34, laneH = (H-noteH)/3;
@@ -2661,12 +3792,19 @@ function renderVoice(v){
   el.innerHTML = `
     <div class="voicehead">
       <div class="voicename">${v.name}${isRoot?' <span style=\"color:var(--label-dim);font-weight:400;font-size:11px;\">— ROOT</span>':''}</div>
+      <span class="enginetag" title="Open the SOUND tab"></span>
+      <label class="vvol" title="Voice volume">VOL <input type="range" class="voiceVol" min="0" max="100" value="${Math.round(v.synth.params.level*100)}"><span class="vvolv">${Math.round(v.synth.params.level*100)}</span></label>
       <button class="chip mutechip">MUTE</button>
-      <button class="chip envchip" title="Use a custom envelope for this voice">ENV</button>
+      <button class="chip envchip" title="Init Pluck only: use a custom ADSR envelope for this voice">ENV</button>
       ${isRoot ? '' : '<button class="chip linkchip">LINK</button>'}
       ${isRoot ? '' : '<button class="chip removechip">REMOVE</button>'}
       <div class="steprow"></div>
     </div>
+    <div class="vtabs">
+      <button class="vtab active" data-tab="pattern">PATTERN</button>
+      <button class="vtab" data-tab="sound">SOUND</button>
+    </div>
+    <div class="vpane pane-pattern">
     <div class="voicegrid">
       <div class="logic-config">
         <div class="field">
@@ -2689,15 +3827,6 @@ function renderVoice(v){
           <option value="square" ${v.lfoType==='square'?'selected':''}>Square</option>
           <option value="saw" ${v.lfoType==='saw'?'selected':''}>Saw</option>
           <option value="random" ${v.lfoType==='random'?'selected':''}>Random</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>TONE</label>
-        <select class="toneSel">
-          <option value="sine" ${v.tone==='sine'?'selected':''}>Sine</option>
-          <option value="triangle" ${v.tone==='triangle'?'selected':''}>Triangle</option>
-          <option value="sawtooth" ${v.tone==='sawtooth'?'selected':''}>Saw</option>
-          <option value="square" ${v.tone==='square'?'selected':''}>Square</option>
         </select>
       </div>
       <div class="field">
@@ -2726,6 +3855,12 @@ function renderVoice(v){
         <div class="predictscale"><span>SIMPLE (5th/oct)</span><span>THIRDS/6ths</span><span>COMPLEX</span></div>
       </div>`}
     </div>
+    <div class="scope">
+      <canvas class="scopeCanvas" width="1120" height="120"></canvas>
+      <div class="scopelabels"><span>NOTE</span><span>CLOCK A</span><span>CLOCK B</span><span class="logicLabel">${v.logic} →</span></div>
+    </div>
+    </div>
+    <div class="vpane pane-sound hidden">
     <div class="envpanel" hidden>
       <div class="envgraph"><canvas class="envCanvas" width="300" height="112"></canvas><span>Gate + release · <span class="envTotal"></span></span></div>
       ${envSliderHtml('a','ATTACK',v.env.a,'ms')}
@@ -2734,28 +3869,33 @@ function renderVoice(v){
       ${envSliderHtml('r','RELEASE',v.env.r,'ms')}
       ${envSliderHtml('gate','GATE',v.env.gate,'ms')}
     </div>
-    <div class="scope">
-      <canvas class="scopeCanvas" width="1120" height="120"></canvas>
-      <div class="scopelabels"><span>NOTE</span><span>CLOCK A</span><span>CLOCK B</span><span class="logicLabel">${v.logic} →</span></div>
     </div>
   `;
   voicesEl.appendChild(el);
   renderVoicePattern(v);
+  buildSoundPane(v, el);
+  updateEngineTag(v, el);
+  el.querySelectorAll('.vtab').forEach(b=>b.addEventListener('click',()=>switchVoiceTab(el,b.dataset.tab)));
+  el.querySelector('.enginetag').addEventListener('click',()=>switchVoiceTab(el,'sound'));
+  el.querySelector('.voiceVol').addEventListener('input',e=>{ setSynthParam(v,'level',parseInt(e.target.value,10)/100); });
   if(v.muted){ el.classList.add('muted'); el.querySelector('.mutechip').classList.add('active'); }
   if(!isRoot && v.harmonicLink){ el.querySelector('.linkchip').classList.add('active'); }
   const envChip = el.querySelector('.envchip'), envPanel = el.querySelector('.envpanel');
   function syncEnvUI(){
+    const isInit = v.synth.engine==='init';   // the ENV panel shapes the Init Pluck only
+    envChip.hidden = !isInit;
     envChip.classList.toggle('active', v.env.on);
     envChip.setAttribute('aria-pressed', String(v.env.on));
-    envPanel.hidden = !v.env.on;
-    if(v.env.on) requestAnimationFrame(()=>drawEnvGraph(v, el));
+    envPanel.hidden = !(isInit && v.env.on);
+    if(isInit && v.env.on) requestAnimationFrame(()=>drawEnvGraph(v, el));
   }
-  syncEnvUI();
-  envChip.addEventListener('click',()=>{ v.env.on = !v.env.on; syncEnvUI(); });
+  el._syncEnv = syncEnvUI;
+  envChip.addEventListener('click',()=>{ v.env.on = !v.env.on; v._snap = null; syncEnvUI(); if(v.env.on) switchVoiceTab(el,'sound'); });
   envPanel.querySelectorAll('.envSlider').forEach(sl=>{
     sl.addEventListener('input',()=>{
       const k = sl.dataset.k;
       v.env[k] = sliderToEnv(k, parseInt(sl.value,10));
+      v._snap = null;
       el.querySelector('.env_'+k+'Val').textContent = fmtEnv(k, v.env[k]);
       drawEnvGraph(v, el);
     });
@@ -2776,6 +3916,7 @@ function renderVoice(v){
     el.querySelector('.removechip').addEventListener('click',()=>{
       if(voices.length<=1) return;
       voices = voices.filter(vv=>vv.id!==v.id);
+      disposeVoiceBus(v);
       el.remove();
     });
     const harmSlider = el.querySelector('.harmSlider');
@@ -2794,7 +3935,7 @@ function renderVoice(v){
     el.querySelector('.logicLabel').textContent = v.logic+' →';
   });
   el.querySelector('.lfoSel').addEventListener('change',e=>{ v.lfoType=e.target.value; });
-  el.querySelector('.toneSel').addEventListener('change',e=>{ v.tone=e.target.value; });
+  syncEnvUI();
   el.querySelector('.octSel').addEventListener('change',e=>{ v.octave=parseInt(e.target.value,10); });
   el.querySelector('.rateSlider').addEventListener('input',e=>{
     v.lfoRate = parseInt(e.target.value,10)/100;
@@ -2829,7 +3970,7 @@ function serializeVoices(){
   return voices.map(v=>({
     name:v.name, color:v.color, muted:v.muted,
     clockA:v.clockA, clockB:v.clockB, logic:v.logic,
-    lfoType:v.lfoType, lfoRate:v.lfoRate, tone:v.tone, octave:v.octave,
+    lfoType:v.lfoType, lfoRate:v.lfoRate, synth:{engine:v.synth.engine, preset:v.synth.preset, dirty:v.synth.dirty, params:Object.assign({},v.synth.params)}, octave:v.octave,
     patternLength:v.patternLength, predictability:v.predictability,
     pattern: v.pattern.slice(), stepCount: v.stepCount,
     harmonicLink:v.harmonicLink, harmonicComplexity:v.harmonicComplexity,
@@ -2906,20 +4047,20 @@ function applyPatternState(state){
     if(c.syncUI) c.syncUI();
   });
 
+  voices.forEach(disposeVoiceBus);
   voicesEl.innerHTML='';
   voices = state.voices.map(sv=>({
     id: voiceIdCounter++,
     name: sv.name, color: sv.color, muted: sv.muted,
     clockA: sv.clockA, clockB: sv.clockB, logic: sv.logic,
-    lfoType: sv.lfoType, lfoRate: sv.lfoRate, tone: sv.tone, octave: sv.octave,
+    lfoType: sv.lfoType, lfoRate: sv.lfoRate, synth: restoreSynth(sv), bus:null, prevNote:null, _snap:null, octave: sv.octave,
     patternLength: sv.patternLength, predictability: sv.predictability,
     pattern: sv.pattern.slice(), stepCount: sv.stepCount||0,
-    seed: Math.random()*1000, gainNode:null, noteHistory:[], lastNote:null,
+    seed: Math.random()*1000, noteHistory:[], lastNote:null,
     harmonicLink: sv.harmonicLink, harmonicComplexity: sv.harmonicComplexity,
     env: cleanEnv(sv.env),   // older saves have no envelope: it comes back off
   }));
   voices.forEach(v=>renderVoice(v));
-  if(audioCtx) ensureAudio();
   document.getElementById('patternNameInput').value = defaultPatternName();
 }
 
@@ -3083,30 +4224,28 @@ function handleSelectionTap(clientX){
 })();
 
 /* ---- preview playback (live, through the same synth voice, before committing to a download) ---- */
-let previewGain = null;
+let previewSession = null; // {gain, buses}
 let previewActive = false;
 let previewEndTimer = null;
 
-function ensurePreviewGain(){
-  if(!previewGain){
-    previewGain = audioCtx.createGain();
-    previewGain.gain.value = 1;
-    previewGain.connect(masterGain);
-  }
-}
-function playPreviewNote(midi, time, tone, env){
-  synthVoiceNote(audioCtx, previewGain, midi, time, tone, env||null);
-}
 function updatePreviewButtons(){
   document.getElementById('stopPreviewBtn').disabled = !previewActive;
 }
-function stopPreview(updateUI){
-  if(previewGain && audioCtx){
+function releasePreviewSession(s, fadeNow){
+  if(!s) return;
+  if(fadeNow){
     const now = audioCtx.currentTime;
-    previewGain.gain.cancelScheduledValues(now);
-    previewGain.gain.setValueAtTime(previewGain.gain.value, now);
-    previewGain.gain.linearRampToValueAtTime(0.0001, now+0.03);
+    s.gain.gain.cancelScheduledValues(now);
+    s.gain.gain.setValueAtTime(s.gain.gain.value, now);
+    s.gain.gain.linearRampToValueAtTime(0.0001, now+0.03);
   }
+  setTimeout(()=>{
+    s.buses.forEach(b=>{ try{ b.dispose(); }catch(e){} });
+    try{ s.gain.disconnect(); }catch(e){}
+  }, fadeNow ? 120 : 50);
+}
+function stopPreview(updateUI){
+  if(previewSession && audioCtx){ releasePreviewSession(previewSession, true); previewSession=null; }
   if(previewEndTimer){ clearTimeout(previewEndTimer); previewEndTimer=null; }
   previewActive = false;
   if(updateUI) updatePreviewButtons();
@@ -3115,20 +4254,27 @@ function startPreview(){
   if(!selRange || !selSnapshot) return;
   ensureAudio();
   if(audioCtx.state==='suspended') audioCtx.resume();
-  ensurePreviewGain();
   stopPreview(false);
   const events = selSnapshot.events.filter(e=>e.time>=selRange.startTime && e.time<selRange.endTime);
   if(!events.length) return;
+  const gain = audioCtx.createGain();
+  gain.gain.value = 1;
+  gain.connect(masterGain.input);
   const startAt = audioCtx.currentTime + 0.05;
-  previewGain.gain.cancelScheduledValues(audioCtx.currentTime);
-  previewGain.gain.setValueAtTime(1, audioCtx.currentTime);
-  events.forEach(e=>{
-    playPreviewNote(e.note, startAt + (e.time - selRange.startTime), e.tone||'triangle', e.env);
-  });
-  const duration = (selRange.endTime - selRange.startTime) + 0.4;
+  const r = scheduleEvents(audioCtx, gain, events, selRange.startTime, startAt);
+  const session = {gain, buses:r.buses};
+  previewSession = session;
   previewActive = true;
   updatePreviewButtons();
-  previewEndTimer = setTimeout(()=>{ previewActive=false; updatePreviewButtons(); }, duration*1000);
+  const uiMs = ((selRange.endTime - selRange.startTime) + 0.4)*1000;
+  const endMs = Math.min(30000, (r.end - audioCtx.currentTime + r.tail)*1000);
+  previewEndTimer = setTimeout(()=>{
+    previewActive=false; updatePreviewButtons();
+    previewEndTimer = setTimeout(()=>{
+      if(previewSession===session){ releasePreviewSession(session,false); previewSession=null; }
+      previewEndTimer=null;
+    }, Math.max(0,endMs-uiMs));
+  }, uiMs);
 }
 document.getElementById('previewBtn').addEventListener('click', startPreview);
 document.getElementById('stopPreviewBtn').addEventListener('click', ()=>stopPreview(true));
@@ -3143,11 +4289,17 @@ function vlq(value){
 function be16(n){ return [(n>>8)&0xFF, n&0xFF]; }
 function be32(n){ return [(n>>24)&0xFF,(n>>16)&0xFF,(n>>8)&0xFF,n&0xFF]; }
 const TONE_PROGRAM = { sine:73, triangle:9, sawtooth:81, square:80 };
+// General MIDI program per engine, so a DAW opens each voice on a roughly matching instrument
+const ENGINE_PROGRAM = { moog:38, juno:90, prophet:62, dx7:4, strings:50, strum:25 };
+function programFor(snap){
+  if(!snap) return 0;
+  if(snap.engine==='init') return TONE_PROGRAM[snap.p.wave]||0;
+  return ENGINE_PROGRAM[snap.engine]||0;
+}
 
 function buildMidiFile(events, startTime){
   const PPQ = 480;
   const secPerBeat = 60/bpm;
-  const NOTE_DUR = 0.3;
   const secToTicks = s => Math.max(0, Math.round((s/secPerBeat)*PPQ));
 
   const voiceIds = [...new Set(events.map(e=>e.voiceId))];
@@ -3158,7 +4310,7 @@ function buildMidiFile(events, startTime){
     channelOf[id] = ch % 16;
     ch++;
     const ev = events.find(e=>e.voiceId===id);
-    toneOf[id] = ev ? ev.tone : 'triangle';
+    toneOf[id] = ev ? programFor(ev.snap) : 0;
   });
 
   let msgs = []; // {tick, bytes}
@@ -3166,18 +4318,19 @@ function buildMidiFile(events, startTime){
   const usPerQuarter = Math.round(60000000/bpm);
   msgs.push({tick:0, bytes:[0xFF,0x51,0x03,(usPerQuarter>>16)&0xFF,(usPerQuarter>>8)&0xFF,usPerQuarter&0xFF]});
   voiceIds.forEach(id=>{
-    msgs.push({tick:0, bytes:[0xC0|channelOf[id], TONE_PROGRAM[toneOf[id]]||0]});
+    msgs.push({tick:0, bytes:[0xC0|channelOf[id], toneOf[id]]});
   });
   events.forEach(e=>{
     const relSec = e.time - startTime;
     const onTick = secToTicks(relSec);
-    const offTick = secToTicks(relSec+(e.env ? e.env.gate/1000 : NOTE_DUR));
+    const offTick = Math.max(onTick+1, secToTicks(relSec+(e.dur||0.3)));
     const c = channelOf[e.voiceId];
     const note = Math.max(0,Math.min(127, Math.round(e.note)));
     msgs.push({tick:onTick, bytes:[0x90|c, note, 96]});
     msgs.push({tick:offTick, bytes:[0x80|c, note, 0]});
   });
-  msgs.sort((a,b)=>a.tick-b.tick);
+  // note-offs sort before note-ons on the same tick so a retriggered pitch isn't cut by its own earlier off
+  msgs.sort((a,b)=> a.tick-b.tick || ((a.bytes[0]&0xF0)===0x80?-1:0) - ((b.bytes[0]&0xF0)===0x80?-1:0));
 
   let track = [];
   let lastTick = 0;
@@ -3209,12 +4362,6 @@ document.getElementById('exportMidiBtn').addEventListener('click',()=>{
 });
 
 /* ---- WAV export (offline render of the exact same synth voice) ---- */
-function midiToFreqExport(m){ return 440*Math.pow(2,(m-69)/12); }
-
-function renderOfflineNote(ctx, gainOut, midi, time, tone, env){
-  synthVoiceNote(ctx, gainOut, midi, time, tone, env||null);
-}
-
 function audioBufferToWav(buffer){
   const numCh = buffer.numberOfChannels;
   const sr = buffer.sampleRate;
@@ -3243,16 +4390,15 @@ document.getElementById('exportWavBtn').addEventListener('click', async ()=>{
   if(!selRange || !selSnapshot) return;
   const events = selSnapshot.events.filter(e=>e.time>=selRange.startTime && e.time<selRange.endTime);
   if(!events.length) return;
-  const tail = events.reduce((m,e)=>Math.max(m, e.env ? (e.env.gate+e.env.r)/1000 + 0.1 : 0.5), 0.5);
-  const duration = (selRange.endTime - selRange.startTime) + tail;
   const OfflineCtor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-  const offlineCtx = new OfflineCtor(2, Math.ceil(44100*duration), 44100);
-  const master = offlineCtx.createGain();
-  master.gain.value = 0.8;
-  master.connect(offlineCtx.destination);
-  events.forEach(e=>{
-    renderOfflineNote(offlineCtx, master, e.note, e.time - selRange.startTime, e.tone || 'triangle', e.env);
-  });
+  const SR = 44100;
+  // dry run on a throwaway context just to learn how long the release/FX tails ring (nothing is rendered)
+  const probe = new OfflineCtor(2, 1, SR);
+  const pr = scheduleEvents(probe, probe.destination, events, selRange.startTime, 0);
+  const duration = Math.min(120, Math.max(pr.end, (selRange.endTime - selRange.startTime)) + pr.tail + 0.25);
+  const offlineCtx = new OfflineCtor(2, Math.ceil(SR*duration), SR);
+  const master = makeMaster(offlineCtx, 0.8);
+  scheduleEvents(offlineCtx, master, events, selRange.startTime, 0);
   const rendered = await offlineCtx.startRendering();
   downloadBlob(audioBufferToWav(rendered), 'boolean-melody-selection.wav');
 });
