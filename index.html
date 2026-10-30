@@ -3139,7 +3139,7 @@ function scheduleEvents(ctx,dest,events,origin,startAt){
     let b=buses.get(e.snap);
     if(!b){ b=createBus(ctx,dest,e.snap.p); buses.set(e.snap,b); tail=Math.max(tail,b.tail(e.snap.p)); }
     const t=startAt+(e.time-origin);
-    const eEnd=playEngineNote(ctx,b.input,e.snap.engine,e.snap.p,e.note,t,e.dur,{from:e.from,seed:e.seed,env:e.snap.env||null});
+    const eEnd=playEngineNote(ctx,b.input,e.snap.engine,e.snap.p,e.note,t,e.dur,{from:e.from,seed:e.seed,env:e.snap.env?Object.assign({},e.snap.env,{gate:Math.max(20,Math.round(e.dur*1000))}):null});
     end=Math.max(end,eEnd);
   });
   return {end,tail,buses:Array.from(buses.values())};
@@ -3343,6 +3343,8 @@ function makeVoice(){
     octave:0,
     patternLength:8,
     predictability:35,
+    lenMode:'fixed', rhythmVar:0, phraseArc:0,
+    durQ:new Array(8).fill(null), durG:new Array(8).fill(null),
     pattern:new Array(8).fill(null),
     stepCount:0,
     seed: Math.random()*1000,
@@ -3358,6 +3360,9 @@ function resizePattern(v, newLen){
   const np = new Array(newLen).fill(null);
   for(let i=0;i<Math.min(newLen,v.pattern.length);i++) np[i]=v.pattern[i];
   v.pattern = np;
+  const nq = new Array(newLen).fill(null), ng = new Array(newLen).fill(null);
+  for(let i=0;i<Math.min(newLen,(v.durQ||[]).length);i++){ nq[i]=v.durQ[i]; ng[i]=v.durG[i]; }
+  v.durQ = nq; v.durG = ng;
   v.patternLength = newLen;
 }
 
@@ -3399,10 +3404,11 @@ function envLevelAt(env, t){
   if(t <= A) return ENV_PEAK * (t/A);
   return ENV_PEAK*S + (ENV_PEAK - ENV_PEAK*S) * Math.exp(-(t-A)/(D/4));
 }
-function playNote(v, midi, time, snap, seed){
+function playNote(v, midi, time, snap, seed, dur){
   if(v.muted) return;
   const bus = getLiveBus(v);
-  playEngineNote(audioCtx, bus.input, snap.engine, snap.p, midi, time, noteDur(snap), {from:v.prevNote, seed, env:snap.env});
+  const env = snap.env ? Object.assign({}, snap.env, {gate:Math.max(20,Math.round(dur*1000))}) : null; // Init Pluck's ENV gate follows the note length
+  playEngineNote(audioCtx, bus.input, snap.engine, snap.p, midi, time, dur, {from:v.prevNote, seed, env});
 
   const delayMs = Math.max(0,(time-audioCtx.currentTime)*1000);
   setTimeout(()=>flashStep(v),delayMs);
@@ -3543,39 +3549,85 @@ function processVoiceWindow(v, winStart, winEnd){
     if(e.src==='A') stateA = (e.type==='rise'); else stateB = (e.type==='rise');
     const combined = applyLogic(v.logic, stateA, stateB);
     if(!prevCombined && combined){
-      triggerVoice(v, e.time);
+      triggerVoice(v, e.time, stateA, stateB);
     }
     prevCombined = combined;
   }
 }
 
-function triggerVoice(v, time){
+/* ---------- note length: second output of the same gate logic ----------
+   LENGTH mode  Fixed      the voice's NOTE LENGTH (as before)
+                Gate       held while the combined A·op·B gate stays high
+                Until next held until the voice's next trigger (legato; rests become sustain)
+   RHYTHM VARIETY  chance per step of a longer/shorter note (a stored per-step value, locked or
+                   resampled by the same PREDICTABILITY knob as the pitch)
+   PHRASE ARC      stretches the first and last step of the pattern, and shortens the one before the end */
+const LEN_DEV = [0.5,0.5,1.5,2,2,3,4];
+function scanGate(v, t, stA, stB){
+  const cA = clocks[v.clockA], cB = clocks[v.clockB];
+  const horizon = t + 16*60/bpm;
+  const ev = edgesInWindow(cA,t-1e-6,horizon).map(e=>({...e,src:'A'}))
+    .concat(edgesInWindow(cB,t-1e-6,horizon).map(e=>({...e,src:'B'})))
+    .sort((a,b)=>a.time-b.time);
+  let a=stA, b=stB, fall=null, rise=null;
+  for(const e of ev){
+    if(e.src==='A') a=(e.type==='rise'); else b=(e.type==='rise');
+    const c = applyLogic(v.logic,a,b);
+    if(fall==null){ if(!c) fall=e.time; }
+    else if(c){ rise=e.time; break; }
+  }
+  return {fall, rise, horizon};
+}
+function computeDur(v, snap, t, step, stA, stB){
+  let base = noteDur(snap);
+  const varOn = v.rhythmVar>0, arcOn = v.phraseArc>0;
+  if(v.lenMode==='fixed' && !varOn && !arcOn) return base;
+  const sc = scanGate(v,t,stA,stB);
+  const gap = sc.rise!=null ? Math.max(0.03, sc.rise - t - 0.01) : Infinity;
+  if(v.lenMode==='gate') base = (sc.fall!=null ? sc.fall : sc.horizon) - t;
+  else if(v.lenMode==='next') base = (sc.rise!=null ? sc.rise - 0.01 : sc.horizon) - t;
+  let m = 1;
+  if(varOn && v.durG[step]!=null && v.durG[step] < v.rhythmVar/100) m *= LEN_DEV[Math.min(LEN_DEV.length-1, Math.floor((v.durQ[step]||0)*LEN_DEV.length))];
+  if(arcOn){
+    const a = v.phraseArc/100, last = v.patternLength-1;
+    if(step===last) m *= 1+2.5*a;
+    else if(step===0) m *= 1+1.5*a;
+    else if(step===last-1 && v.patternLength>=4) m *= 1-0.4*a;
+  }
+  let d = base*m;
+  if(m>1) d = Math.min(d, Math.max(base, gap));   // a stretched note never runs over the next trigger
+  return Math.max(0.03, Math.min(d, 16*60/bpm));
+}
+
+function triggerVoice(v, time, stA, stB){
   jam.trace(time, v.id);
   const step = v.stepCount % v.patternLength;
-  let baseNote;
+  let baseNote, redrew = false;
   if(v.pattern[step]==null){
     baseNote = drawNote(v,time);
-    v.pattern[step]=baseNote;
+    v.pattern[step]=baseNote; redrew = true;
   } else {
     const p = Math.pow(v.predictability/100, 1.7);
     if(Math.random() < p){
       baseNote = drawNote(v,time);
-      v.pattern[step]=baseNote;
+      v.pattern[step]=baseNote; redrew = true;
     } else {
       baseNote = v.pattern[step];
     }
   }
+  if(redrew || v.durQ[step]==null){ v.durQ[step]=Math.random(); v.durG[step]=Math.random(); }
   const note = baseNote + v.octave*12; // live octave transpose, independent of pattern lock
   const snap = getSnap(v);
   const seed = (v.seed*0.61803 + v.stepCount*0.75488) % 1;
-  playNote(v, note, time, snap, seed);
+  const dur = computeDur(v, snap, time, step, stA, stB);
+  playNote(v, note, time, snap, seed, dur);
   const from = v.prevNote;
   v.prevNote = note;
   v.stepCount++;
   v.lastStep = step;
   v.lastNote = note;
-  v.noteHistory.push({time, note});
-  if(!v.muted) recordBuffer.push({time, note, dur:noteDur(snap), voiceId:v.id, color:v.color, snap, from, seed});
+  v.noteHistory.push({time, note, dur});
+  if(!v.muted) recordBuffer.push({time, note, dur, voiceId:v.id, color:v.color, snap, from, seed});
   renderVoicePattern(v);
   updateHarmonicReadout(v);
 }
@@ -3702,6 +3754,10 @@ function drawScope(v){
       ctx.fillStyle = v.color;
       ctx.arc(x,y,3.2,0,Math.PI*2);
       ctx.fill();
+      if(n.dur){ // note length, drawn as a bar behind the head
+        const bw = Math.min(W-x, n.dur/SCOPE_WINDOW*W);
+        if(bw>4){ ctx.globalAlpha = 0.45; ctx.fillRect(x, y-1.5, bw, 3); ctx.globalAlpha = 1; }
+      }
       // tick on the combined lane marking the trigger instant
       ctx.fillRect(x-0.5, laneCTop, 1, laneH);
     });
@@ -3848,6 +3904,22 @@ function renderVoice(v){
         <input type="range" class="predSlider" min="0" max="100" value="${v.predictability}">
         <div class="predictscale"><span>STATIC</span><span>EVOLVING</span><span>RANDOM</span></div>
       </div>
+      <div class="field">
+        <label>NOTE LENGTH</label>
+        <select class="lenModeSel" title="How long each note is held">
+          <option value="fixed" ${v.lenMode==='fixed'?'selected':''}>Fixed</option>
+          <option value="gate" ${v.lenMode==='gate'?'selected':''}>Follow gate</option>
+          <option value="next" ${v.lenMode==='next'?'selected':''}>Until next</option>
+        </select>
+      </div>
+      <div class="sliderfield">
+        <label>RHYTHM VARIETY — <span class="sv varVal">${v.rhythmVar}</span></label>
+        <input type="range" class="varSlider" min="0" max="100" value="${v.rhythmVar}">
+      </div>
+      <div class="sliderfield">
+        <label>PHRASE ARC — <span class="sv arcVal">${v.phraseArc}</span></label>
+        <input type="range" class="arcSlider" min="0" max="100" value="${v.phraseArc}">
+      </div>
       ${isRoot ? '' : `
       <div class="sliderfield harmonicField ${v.harmonicLink?'':'off'}" style="grid-column:span 2;">
         <label>HARMONY (rel. to root) — <span class="sv harmVal">${CONSONANCE_INTERVALS[Math.round((v.harmonicComplexity/100)*(CONSONANCE_INTERVALS.length-1))].name}</span> <span class="sv harmLastVal" style="color:var(--label-dim);"></span></label>
@@ -3946,6 +4018,15 @@ function renderVoice(v){
     el.querySelector('.lenVal').textContent = v.patternLength;
     renderVoicePattern(v);
   });
+  el.querySelector('.lenModeSel').addEventListener('change',e=>{ v.lenMode=e.target.value; });
+  el.querySelector('.varSlider').addEventListener('input',e=>{
+    v.rhythmVar = parseInt(e.target.value,10);
+    el.querySelector('.varVal').textContent = v.rhythmVar;
+  });
+  el.querySelector('.arcSlider').addEventListener('input',e=>{
+    v.phraseArc = parseInt(e.target.value,10);
+    el.querySelector('.arcVal').textContent = v.phraseArc;
+  });
   el.querySelector('.predSlider').addEventListener('input',e=>{
     v.predictability = parseInt(e.target.value,10);
     el.querySelector('.predVal').textContent = v.predictability;
@@ -3972,6 +4053,7 @@ function serializeVoices(){
     clockA:v.clockA, clockB:v.clockB, logic:v.logic,
     lfoType:v.lfoType, lfoRate:v.lfoRate, synth:{engine:v.synth.engine, preset:v.synth.preset, dirty:v.synth.dirty, params:Object.assign({},v.synth.params)}, octave:v.octave,
     patternLength:v.patternLength, predictability:v.predictability,
+    lenMode:v.lenMode, rhythmVar:v.rhythmVar, phraseArc:v.phraseArc, durQ:v.durQ.slice(), durG:v.durG.slice(),
     pattern: v.pattern.slice(), stepCount: v.stepCount,
     harmonicLink:v.harmonicLink, harmonicComplexity:v.harmonicComplexity,
     env: Object.assign({}, v.env),
@@ -4055,6 +4137,8 @@ function applyPatternState(state){
     clockA: sv.clockA, clockB: sv.clockB, logic: sv.logic,
     lfoType: sv.lfoType, lfoRate: sv.lfoRate, synth: restoreSynth(sv), bus:null, prevNote:null, _snap:null, octave: sv.octave,
     patternLength: sv.patternLength, predictability: sv.predictability,
+    lenMode: ['fixed','gate','next'].includes(sv.lenMode)?sv.lenMode:'fixed', rhythmVar: sv.rhythmVar||0, phraseArc: sv.phraseArc||0,
+    durQ: Array.isArray(sv.durQ)?sv.durQ.slice():new Array(sv.patternLength).fill(null), durG: Array.isArray(sv.durG)?sv.durG.slice():new Array(sv.patternLength).fill(null),
     pattern: sv.pattern.slice(), stepCount: sv.stepCount||0,
     seed: Math.random()*1000, noteHistory:[], lastNote:null,
     harmonicLink: sv.harmonicLink, harmonicComplexity: sv.harmonicComplexity,
