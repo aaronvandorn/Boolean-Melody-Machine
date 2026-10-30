@@ -286,6 +286,57 @@
   .legend b{color:var(--label);font-family:'Space Mono',monospace;font-weight:700;}
 
 
+  /* ---- FORM: song-form chart (sections, keys, scales, vamps) ---- */
+  .formhead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-bottom:10px;}
+  .formhead .legend{margin:0;flex:1 1 320px;padding:8px 12px;}
+  .ghostbtn.on{background:var(--amber);border-color:var(--amber);color:var(--ink);}
+  .formnow{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:center;background:var(--panel);border:1px solid var(--line-dim);border-radius:10px;padding:12px 16px;}
+  .formnow.idle .formletter{opacity:.45;}
+  .formletter{font-family:'Space Mono',monospace;font-weight:700;font-size:64px;line-height:.9;color:var(--sec);grid-row:span 2;min-width:.8em;text-align:center;}
+  .forminfo{display:grid;gap:3px;min-width:0;}
+  .formkey{font-family:'Space Mono',monospace;font-weight:700;font-size:19px;letter-spacing:.5px;}
+  .formwhere,.formnext{font-size:13px;color:var(--label-dim);}
+  .formnext b{color:var(--sec-next);font-family:'Space Mono',monospace;}
+  .formmeter{display:flex;gap:3px;flex-wrap:wrap;align-self:end;}
+  .formmeter i{flex:1 1 8px;min-width:6px;max-width:30px;height:8px;border-radius:2px;background:var(--panel2);border:1px solid var(--line-dim);}
+  .formmeter i.done{background:color-mix(in srgb,var(--sec) 40%,var(--panel2));}
+  .formmeter i.cur{background:var(--sec);border-color:var(--sec);}
+  .formmeter i.open{border-style:dashed;background:none;}
+  .formactions{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin-top:8px;}
+  .formactions .ghostbtn[disabled]{opacity:.45;cursor:not-allowed;}
+  .formflag{font-size:12px;color:var(--amber);}
+  .formscale{display:flex;gap:3px;flex-wrap:wrap;margin-left:auto;}
+  .formscale span{font-family:'Space Mono',monospace;font-size:10.5px;padding:2px 5px;border-radius:3px;border:1px solid var(--line-dim);color:var(--label-dim);}
+  .formscale span.in{color:var(--label);border-color:var(--sec);background:color-mix(in srgb,var(--sec) 15%,transparent);}
+  .formscale span.root{background:var(--sec);color:var(--ink);}
+  .formscale span.color{box-shadow:inset 0 -2px 0 var(--label);}
+  .formorderrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;}
+  .formorder{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-right:auto;}
+  .formcue{font-family:'Space Mono',monospace;font-weight:700;font-size:18px;width:38px;height:46px;border-radius:6px;border:1px solid var(--line-dim);background:var(--panel);color:var(--sec);position:relative;cursor:pointer;padding:0 0 9px;}
+  .formcue small{position:absolute;bottom:3px;left:0;right:0;font-weight:400;font-size:9.5px;color:var(--label-dim);}
+  .formcue.cur{background:var(--sec);border-color:var(--sec);color:var(--ink);}
+  .formcue.cur small{color:var(--ink);}
+  .formadd{padding:6px 9px;font-family:'Space Mono',monospace;}
+  .formedit{margin-top:10px;}
+  .formedit>summary{cursor:pointer;font-size:11px;color:var(--label-dim);letter-spacing:.05em;text-transform:uppercase;font-family:'Space Mono',monospace;}
+  .formedit[open]>summary{margin-bottom:10px;}
+  .formeditbody{background:var(--panel);border:1px solid var(--line-dim);border-radius:10px;padding:12px 16px;display:grid;gap:10px;}
+  .formtabs{display:inline-flex;gap:4px;}
+  .formtabs button{background:transparent;border:1px solid var(--line-dim);color:var(--label-dim);font-family:'Space Mono',monospace;font-weight:700;font-size:15px;padding:4px 14px;border-radius:6px;cursor:pointer;}
+  .formtabs button[aria-selected="true"]{border-color:var(--sec);color:var(--sec);background:var(--panel2);}
+  .formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 14px;}
+  .formgrid[hidden],.formgrid .field[hidden]{display:none!important;}
+  .formgrid .field{min-width:0;}
+  .formgrid .field select,.formgrid .field .readout{width:100%;}
+  .formgrid input[type=range]{width:100%;accent-color:var(--sec);}
+  .formgrid .val{font-family:'Space Mono',monospace;font-size:10px;color:var(--amber);text-transform:none;margin-left:4px;}
+  .formseg{display:flex;gap:2px;border:1px solid var(--line);border-radius:5px;padding:2px;background:var(--panel2);}
+  .formseg button{flex:1;background:none;border:0;padding:5px 6px;border-radius:3px;cursor:pointer;color:var(--label-dim);font-family:'Archivo Narrow',sans-serif;font-weight:700;font-size:12px;letter-spacing:.04em;}
+  .formseg button[aria-pressed="true"]{background:var(--panel);color:var(--label);box-shadow:0 0 0 1px var(--line);}
+  .formhint{font-size:12px;color:var(--label-dim);margin:0;line-height:1.5;max-width:75ch;}
+  .formhint b{color:var(--label);}
+  @media (max-width:560px){ .formletter{font-size:48px;} .formscale{margin-left:0;} }
+
   /* ---- per-voice tabs + SOUND pane ---- */
   .enginetag{
     font-family:'Space Mono',monospace;font-size:10.5px;color:var(--amber);cursor:pointer;
@@ -353,6 +404,68 @@
     </div>
   </header>
 
+
+
+  <section class="block" id="formBlock">
+    <div class="blocklabel">FORM</div>
+    <div class="formhead">
+      <button class="ghostbtn" id="formOnBtn" aria-pressed="false">Follow the chart</button>
+      <div class="legend">A chart of sections in place of chained patterns. Each section sets the key and scale the voices quantize to, how long it lasts, and a feel. The clocks, gates and patterns keep running underneath, and held notes move into each new key.</div>
+    </div>
+    <div class="formnow idle" id="formNow">
+      <div class="formletter" id="formLetter">A</div>
+      <div class="forminfo">
+        <div class="formkey" id="formKey"></div>
+        <div class="formwhere" id="formWhere"></div>
+        <div class="formnext" id="formNext"></div>
+      </div>
+      <div class="formmeter" id="formMeter"></div>
+      <div class="formactions">
+        <button class="ghostbtn" id="formCueBtn" disabled>Cue next section</button>
+        <span class="formflag" id="formFlag"></span>
+        <div class="formscale" id="formScale" aria-label="Scale in this bar"></div>
+      </div>
+    </div>
+    <div class="formorderrow">
+      <div class="formorder" id="formOrder"></div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:8px;">
+        <label for="formPreset">CHART</label>
+        <select id="formPreset"></select>
+      </div>
+    </div>
+    <details class="formedit" id="formEdit">
+      <summary>Edit sections</summary>
+      <div class="formeditbody">
+        <div class="formtabs" id="formTabs" role="tablist" aria-label="Section"></div>
+        <div class="formgrid">
+          <div class="field"><label for="formRoot">ROOT</label><select id="formRoot"></select></div>
+          <div class="field"><label for="formMode">SCALE</label><select id="formMode"></select></div>
+          <div class="field"><label>ENTER BY</label><div class="formseg" id="formEnter"><button data-v="hard">Hard</button><button data-v="pivot">Pivot</button><button data-v="anticipate">Anticipate</button></div></div>
+        </div>
+        <p class="formhint" id="formEnterHint"></p>
+        <div class="formgrid">
+          <div class="field"><label>LENGTH</label><div class="formseg" id="formLenType"><button data-v="fixed">Fixed</button><button data-v="vamp">Vamp</button></div></div>
+          <div class="field" id="formwBars"><label for="formBars">BARS</label><input class="readout" id="formBars" type="number" min="1" max="64"></div>
+          <div class="field" id="formwMin"><label for="formMin">AT LEAST</label><input class="readout" id="formMin" type="number" min="1" max="64"></div>
+          <div class="field" id="formwMax"><label for="formMax">AT MOST</label><input class="readout" id="formMax" type="number" min="1" max="128"></div>
+        </div>
+        <div class="formgrid" id="formwRule">
+          <div class="field"><label>LEAVE WHEN</label><div class="formseg" id="formRuleKind"><button data-v="gate">Clocks</button><button data-v="chance">Chance</button></div></div>
+          <div class="field" id="formwA"><label for="formA">BAR CLOCK</label><input class="readout" id="formA" type="number" min="1" max="16"></div>
+          <div class="field" id="formwOp"><label for="formOp">LOGIC</label><select id="formOp"><option>AND</option><option>OR</option><option>XOR</option></select></div>
+          <div class="field" id="formwB"><label for="formB">BAR CLOCK</label><input class="readout" id="formB" type="number" min="1" max="16"></div>
+          <div class="field" id="formwPct"><label for="formPct">CHANCE PER BAR <span class="val" id="formvPct"></span></label><input id="formPct" type="range" min="5" max="90"></div>
+        </div>
+        <p class="formhint" id="formLenHint"></p>
+        <div class="formgrid">
+          <div class="field"><label for="formDensity">DENSITY <span class="val" id="formvDensity"></span></label><input id="formDensity" type="range" min="0" max="100"></div>
+          <div class="field"><label for="formRegister">REGISTER <span class="val" id="formvRegister"></span></label><input id="formRegister" type="range" min="0" max="100"></div>
+          <div class="field"><label for="formBright">COLOR <span class="val" id="formvBright"></span></label><input id="formBright" type="range" min="0" max="100"></div>
+        </div>
+        <p class="formhint">Feel works on top of each voice's own settings. <b>Density</b> moves a voice's logic one step narrower (toward AND) or wider (toward OR) on some bars; the further from the middle, the more bars. <b>Register</b> moves every voice down or up an octave. <b>Color</b> leans newly drawn notes toward the scale's color tone, or toward the root and fifth.</p>
+      </div>
+    </details>
+  </section>
 
   <section class="block">
     <div class="blocklabel">CLOCKS</div>
@@ -3437,9 +3550,10 @@ function scaleSemitoneSet(){
   return SCALES[scaleName];
 }
 
-function snapToScale(midi){
-  const scale = scaleSemitoneSet();
-  const pc = ((midi - rootIndex) % 12 + 12) % 12;
+function snapToScale(midi, t){
+  const H = harmonyAt(t);   // the Form chart's key and scale at time t, or the ROOT/SCALE selects
+  const scale = H.pcs;
+  const pc = ((midi - H.root) % 12 + 12) % 12;
   let best = scale[0], bestDist = 99;
   scale.forEach(s=>{
     let d = Math.abs(s - pc);
@@ -3456,7 +3570,8 @@ function drawNote(v,t){
   if(v.harmonicLink && v!==voices[0]){
     return drawHarmonicNote(v,t);
   }
-  const scale = SCALES[scaleName];
+  const H = harmonyAt(t);
+  const scale = H.pcs;
   const totalDegrees = scale.length*OCT_SPAN;
   const val = lfoValue(v,t);
   let degIdx = Math.floor(val*totalDegrees);
@@ -3464,12 +3579,12 @@ function drawNote(v,t){
   const oct = Math.floor(degIdx/scale.length);
   const deg = degIdx % scale.length;
   const semitone = oct*12 + scale[deg];
-  return 60 + rootIndex + semitone; // octave transpose applied live at trigger time
+  return 60 + H.root + semitone; // octave transpose applied live at trigger time
 }
 
 function drawHarmonicNote(v,t){
   const root = voices[0];
-  const rootNote = (root && root.lastNote!=null) ? root.lastNote : (60+rootIndex);
+  const rootNote = (root && root.lastNote!=null) ? root.lastNote : (60+harmonyAt(t).root);
   const level = Math.round((v.harmonicComplexity/100) * (CONSONANCE_INTERVALS.length-1));
   const allowed = CONSONANCE_INTERVALS.slice(0, level+1);
   const val = lfoValue(v,t);
@@ -3477,7 +3592,7 @@ function drawHarmonicNote(v,t){
   idx = Math.max(0, Math.min(allowed.length-1, idx));
   v.lastInterval = allowed[idx].name;
   const target = rootNote + allowed[idx].semi; // this voice's octave transpose applied live at trigger time
-  return snapToScale(target);
+  return snapToScale(target, t);
 }
 
 /* ---------- euclidean rhythm helpers ---------- */
@@ -3541,7 +3656,7 @@ function processVoiceWindow(v, winStart, winEnd){
   const cA = clocks[v.clockA], cB = clocks[v.clockB];
   let stateA = gateAt(cA,winStart);
   let stateB = gateAt(cB,winStart);
-  let prevCombined = applyLogic(v.logic, stateA, stateB);
+  let prevCombined = applyLogic(voiceLogic(v,winStart), stateA, stateB);
 
   const edgesA = edgesInWindow(cA,winStart,winEnd).map(e=>({...e,src:'A'}));
   const edgesB = edgesInWindow(cB,winStart,winEnd).map(e=>({...e,src:'B'}));
@@ -3549,7 +3664,7 @@ function processVoiceWindow(v, winStart, winEnd){
 
   for(const e of all){
     if(e.src==='A') stateA = (e.type==='rise'); else stateB = (e.type==='rise');
-    const combined = applyLogic(v.logic, stateA, stateB);
+    const combined = applyLogic(voiceLogic(v,e.time), stateA, stateB);
     if(!prevCombined && combined){
       triggerVoice(v, e.time, stateA, stateB);
     }
@@ -3587,7 +3702,7 @@ function scanGate(v, t, stA, stB){
   let a=stA, b=stB, fall=null, rise=null;
   for(const e of ev){
     if(e.src==='A') a=(e.type==='rise'); else b=(e.type==='rise');
-    const c = applyLogic(v.logic,a,b);
+    const c = applyLogic(voiceLogic(v,e.time),a,b);
     if(fall==null){ if(!c) fall=e.time; }
     else if(c){ rise=e.time; break; }
   }
@@ -3622,22 +3737,23 @@ function triggerVoice(v, time, stA, stB){
   }
   let baseNote, redrew = false;
   if(v.pattern[step]==null){
-    baseNote = drawNote(v,time);
+    baseNote = formColorNote(drawNote(v,time), time);
     v.pattern[step]=baseNote; redrew = true;
   } else {
     const p = Math.pow(v.predictability/100, 1.7);
     if(Math.random() < p){
-      baseNote = drawNote(v,time);
+      baseNote = formColorNote(drawNote(v,time), time);
       v.pattern[step]=baseNote; redrew = true;
     } else {
       baseNote = v.pattern[step];
+      if(formLive) baseNote = snapToScale(baseNote, time); // a held pattern follows the chart's key changes
     }
   }
   if(redrew || v.durS[step]==null){
     v.durS[step] = lfoValue(v, time + 0.37/Math.max(0.05, v.lfoRate));   // S&H of the LFO, in parallel with the pitch S&H
     v.durR[step] = Math.random();
   }
-  const note = baseNote + v.octave*12; // live octave transpose, independent of pattern lock
+  const note = baseNote + (v.octave + formOctave(time))*12; // live octave transpose (plus the section's register), independent of pattern lock
   const snap = getSnap(v);
   const seed = (v.seed*0.61803 + v.stepCount*0.75488) % 1;
   const dur = computeDur(v, snap, time, step, stA, stB);
@@ -3662,6 +3778,7 @@ function schedulerTick(){
   const winStart = Math.max(scheduledUntil, now - LOOKAHEAD*2);
   const winEnd = now + LOOKAHEAD;
   if(winEnd>winStart){
+    formTick(winEnd);
     voices.forEach(v=>processVoiceWindow(v,winStart,winEnd));
     scheduledUntil = winEnd;
   }
@@ -3686,11 +3803,13 @@ function togglePlayback(remote){
       t0 = info.startCtx;
       scheduledUntil = t0;
       voices.forEach(v=>{ v.stepCount=0; v.pattern=new Array(v.patternLength).fill(null); renderVoicePattern(v); });
+      formStart(0);
       schedulerHandle = setInterval(schedulerTick, TICK_MS);
       playBtn.textContent='■';
       playBtn.classList.add('on');
     } else {
       isPlaying=false;
+      formStop();
       jam.end();
       clearInterval(schedulerHandle);
       playBtn.textContent='▶';
@@ -4097,7 +4216,7 @@ function serializeVoices(){
   }));
 }
 function captureCurrentState(){
-  return { bpm, rootIndex, scaleName, clocks: serializeClocks(), voices: serializeVoices() };
+  return { bpm, rootIndex, scaleName, clocks: serializeClocks(), voices: serializeVoices(), form: formSave() };
 }
 function persistPatterns(){
   try{ localStorage.setItem(PATTERN_STORAGE_KEY, JSON.stringify(patterns)); }catch(e){}
@@ -4182,6 +4301,7 @@ function applyPatternState(state){
     env: cleanEnv(sv.env),   // older saves have no envelope: it comes back off
   }));
   voices.forEach(v=>renderVoice(v));
+  if(state.form) formLoad(state.form);   // older saves have no chart: the current one stays
   document.getElementById('patternNameInput').value = defaultPatternName();
 }
 
@@ -4555,6 +4675,7 @@ jam = Jam.create({
   key:{
     get:()=>({ root:rootIndex, mode:MODE_IDS[scaleName] }),
     set:k=>{
+      if(FORM.on) return; // the Form chart sets the key while it is on
       if(typeof k.root==='number'){ rootIndex=k.root; rootSelect.value=rootIndex; }
       if(k.mode && MODE_NAMES[k.mode]){ scaleName=MODE_NAMES[k.mode]; scaleSelect.value=scaleName; }
     }
@@ -4564,6 +4685,349 @@ jam = Jam.create({
 });
 // If audio was set up before Jam Link existed, send it through Jam Link's output too.
 if(audioCtx && masterGain){ masterGain.disconnect(); masterGain.connect(jam.speakers()); jam.tapAudio(masterGain); }
+
+/* ---------- Form: a song-form chart in place of chained patterns ----------
+   A chart is an order of sections (A–D). Each sets the key and scale the voices quantize to, a length
+   (fixed bars, or an open vamp that leaves when two bar-count clocks meet through a logic gate, or by
+   chance), how it is entered, and a feel that works on top of each voice's own settings. The clocks,
+   gates and patterns keep running; held pattern notes are re-quantized to each new key.
+   Bars are counted on this app's own beats (4 beats to the bar from Play), so the chart stays in step
+   with Jam Link, Discobot and Mixing Desk. Each bar is also announced on the aaronvandorn-form-v1
+   BroadcastChannel, and each new section's key goes out as a normal Jam Link key change, so linked
+   apps (Choir) change key with it. Message format: FORM-LINK.md. */
+var FORM_LETTERS = ['A','B','C','D'];
+var FORM_NOTE_NAMES = ['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
+// the scale degree (semitones above the root) that gives each scale its character, for COLOR
+var FORM_COLOR_TONE = { major:11, minor:8, dorian:9, phrygian:1, lydian:6, mixolydian:10, locrian:6, majPent:9, minPent:10, blues:6, harmMinor:11, chromatic:null };
+var FORM_ENTER_HINT = {
+  hard: 'The new key and scale land on the downbeat.',
+  pivot: 'For its first bar the voices use only the notes the old and new scales share, then the full new scale.',
+  anticipate: 'On the last beat before this section, the voices already quantize to its scale.'
+};
+function formSec(root, mode, length, feel, enter){ return { root, mode, length, feel, enter: enter || 'hard' }; }
+var FORM_PRESETS = {
+  bridge: { name:'Half-step bridge', order:['A','A','B','A'], sections:{
+    A: formSec(2,'dorian',{type:'fixed',bars:8},{density:.45,register:.5,brightness:.5}),
+    B: formSec(3,'dorian',{type:'fixed',bars:8},{density:.7,register:.75,brightness:.7}) } },
+  colors: { name:'Three colors', order:['A','B','A','C'], sections:{
+    A: formSec(0,'lydian',{type:'fixed',bars:8},{density:.4,register:.5,brightness:.8}),
+    B: formSec(9,'minor',{type:'fixed',bars:8},{density:.5,register:.5,brightness:.35},'pivot'),
+    C: formSec(4,'phrygian',{type:'fixed',bars:4},{density:.8,register:.2,brightness:.75},'anticipate') } },
+  vamp: { name:'Open vamp', order:['A','B'], sections:{
+    A: formSec(5,'dorian',{type:'vamp',min:8,max:32,rule:{kind:'gate',a:3,b:5,op:'AND'}},{density:.4,register:.5,brightness:.55}),
+    B: formSec(8,'mixolydian',{type:'vamp',min:4,max:16,rule:{kind:'chance',pct:25}},{density:.7,register:.7,brightness:.65},'pivot') } }
+};
+function formClone(o){ return JSON.parse(JSON.stringify(o)); }
+function formFresh(k){ return Object.assign({ v:1, loop:true }, formClone(FORM_PRESETS[k])); }
+
+var FORM = { on:false, chart: formFresh('bridge'), editing:'A' };
+var formLive = null; // while playing with the chart on: { first, next, index, barInSection, last, cue, cueArmed, prevScale, ctx, bars }
+
+/* chart validation (saved patterns, Mixing Desk / Discobot state, other tabs) */
+function formCleanSection(x){
+  if(!x || typeof x!=='object') return null;
+  const out = { root: clampN(Math.round(+x.root)||0,0,11), mode: MODE_NAMES[x.mode] ? x.mode : 'dorian',
+    enter: FORM_ENTER_HINT[x.enter] ? x.enter : 'hard', feel:{} };
+  ['density','register','brightness'].forEach(k=>{ const f=(x.feel||{})[k]; out.feel[k] = clampN(isFinite(+f)&&f!==null&&f!=='' ? +f : .5, 0, 1); });
+  const L = x.length || {};
+  if(L.type==='vamp'){
+    const min = clampN(Math.round(+L.min)||8,1,64), max = clampN(Math.round(+L.max)||32,min,128), r = L.rule || {};
+    out.length = { type:'vamp', min, max, rule: r.kind==='chance'
+      ? { kind:'chance', pct: clampN(Math.round(+r.pct)||25,1,100) }
+      : { kind:'gate', a: clampN(Math.round(+r.a)||3,1,16), b: clampN(Math.round(+r.b)||5,1,16), op: ['AND','OR','XOR'].includes(r.op) ? r.op : 'AND' } };
+  } else out.length = { type:'fixed', bars: clampN(Math.round(+L.bars)||8,1,64) };
+  return out;
+}
+function formCleanChart(c){
+  if(!c || typeof c!=='object' || !c.sections) return null;
+  const sections = {};
+  FORM_LETTERS.forEach(L=>{ const x = formCleanSection(c.sections[L]); if(x) sections[L]=x; });
+  const order = (Array.isArray(c.order)?c.order:[]).filter(L=>sections[L]).slice(0,64);
+  if(!order.length) return null;
+  return { v:1, loop:true, name: typeof c.name==='string' ? c.name.slice(0,60) : 'Your chart', order, sections };
+}
+function formSave(){ return { on: FORM.on, chart: formClone(FORM.chart) }; }
+function formLoad(d){
+  if(!d || typeof d!=='object') return;
+  const c = formCleanChart(d.chart); if(c) FORM.chart = c;
+  FORM.editing = FORM.chart.order[0];
+  if(typeof d.on==='boolean' && d.on!==FORM.on) formSetOn(d.on, true);
+  else if(formLive){ formLive.index = Math.min(formLive.index, FORM.chart.order.length-1); }
+  formRenderAll(); formPersist(); formSendChart();
+}
+function formPersist(){ try{ localStorage.setItem('bmm:form', JSON.stringify(formSave())); }catch(e){} }
+
+/* ---------- the form engine ---------- */
+function formScaleOf(x){ return SCALES[MODE_NAMES[x.mode]].map(p=>(p+x.root)%12); }
+function formLenOf(x){ return x.length.type==='fixed' ? x.length.bars : null; }
+function formNextIndex(i){ return (i+1) % FORM.chart.order.length; }
+function formRuleFires(x, n){
+  const r = x.length.rule;
+  if(r.kind==='chance') return Math.random()*100 < r.pct;
+  const a = n % r.a === 0, b = n % r.b === 0;
+  return r.op==='AND' ? (a&&b) : r.op==='OR' ? (a||b) : (a!==b);
+}
+// Decided at the start of each bar: is bar k (0-based) of this section its last?
+function formDecideLast(x, k){
+  let natural;
+  if(x.length.type==='fixed') natural = k >= x.length.bars-1;
+  else { const n = k+1; natural = n>=x.length.max ? true : n<x.length.min ? false : formRuleFires(x, n); }
+  if(natural){ formLive.cue=false; formLive.cueArmed=false; return true; }
+  if(formLive.cueArmed){ formLive.cueArmed=false; return true; }
+  if(formLive.cue){ formLive.cue=false; formLive.cueArmed=true; } // a cue ends the section after the following bar
+  return false;
+}
+function formStart(firstBar){
+  if(!FORM.on) return;
+  formLive = { first:firstBar, next:firstBar, index:0, barInSection:0, last:false, cue:false, cueArmed:false, prevScale:null, ctx:null, bars:new Map() };
+  formRenderNow(null);
+}
+function formStop(){ formLive = null; formRenderNow(null); }
+function formAdvance(){
+  const F = formLive, k = F.next;
+  let changed = true;
+  if(k > F.first){
+    if(F.last){ F.prevScale = F.ctx ? F.ctx.fullScale : null; F.index = formNextIndex(F.index); F.barInSection = 0; }
+    else { F.barInSection++; changed = false; }
+  }
+  if(F.index >= FORM.chart.order.length) F.index = 0;
+  const L = FORM.chart.order[F.index], x = FORM.chart.sections[L];
+  const nL = FORM.chart.order[formNextIndex(F.index)], nx = FORM.chart.sections[nL];
+  F.last = formDecideLast(x, F.barInSection);
+  const full = formScaleOf(x);
+  let scale = full;
+  if(changed && x.enter==='pivot' && F.prevScale){ const common = full.filter(p=>F.prevScale.includes(p)); if(common.length>=3) scale = common; }
+  const len = formLenOf(x);
+  const c = { bar:k, section:L, index:F.index, barInSection:F.barInSection, last:F.last,
+    barsLeft: len ? len-F.barInSection : (F.last?1:null), root:x.root, mode:x.mode, scale, fullScale:full,
+    feel: Object.assign({}, x.feel), enter:x.enter, changed,
+    next: { section:nL, root:nx.root, mode:nx.mode, enter:nx.enter }, nextScale: formScaleOf(nx), shift:{} };
+  F.ctx = c; F.bars.set(k, c);
+  if(F.bars.size > 16) F.bars.delete(Math.min(...F.bars.keys()));
+  F.next++;
+  formAnnounce(c);
+  return c;
+}
+function formBar(k){
+  if(!formLive || k < formLive.first) return null;
+  while(formLive.next <= k) formAdvance();
+  return formLive.bars.get(k) || formLive.ctx;
+}
+function formBarAt(t){
+  if(!formLive || !audioCtx) return null;
+  const b = jam.beatAt(t==null ? audioCtx.currentTime : t) + 1e-6; // notes on a downbeat belong to the new bar
+  const k = Math.floor(b/4), c = formBar(k);
+  return c ? { c, beatInBar: b - k*4 } : null;
+}
+// Key and scale at time t: from the chart while it plays, otherwise from the ROOT/SCALE selects.
+function harmonyAt(t){
+  const at = formBarAt(t);
+  if(!at) return { root:rootIndex, pcs:SCALES[scaleName], color:FORM_COLOR_TONE[MODE_IDS[scaleName]], c:null };
+  const c = at.c;
+  let root = c.root, abs = c.scale, mode = c.mode;
+  if(c.last && c.next.enter==='anticipate' && at.beatInBar >= 3){ root = c.next.root; abs = c.nextScale; mode = c.next.mode; }
+  return { root, pcs: abs.map(p=>(p-root+12)%12).sort((a,b)=>a-b), color:FORM_COLOR_TONE[mode], c };
+}
+// DENSITY: on some bars a voice's logic moves one step narrower or wider on its own ladder.
+var FORM_LADDERS = [['AND','XOR','OR'], ['NOR','XNOR','NAND']];
+function voiceLogic(v, t){
+  const at = formBarAt(t);
+  if(!at) return v.logic;
+  const c = at.c;
+  if(!(v.id in c.shift)){
+    const d = c.feel.density, p = Math.abs(d-.5)*2;
+    c.shift[v.id] = Math.random() < p ? (d > .5 ? 1 : -1) : 0;
+  }
+  const sh = c.shift[v.id]; if(!sh) return v.logic;
+  for(const lad of FORM_LADDERS){ const i = lad.indexOf(v.logic); if(i>=0) return lad[clampN(i+sh,0,lad.length-1)]; }
+  return v.logic;
+}
+// REGISTER: every voice down or up an octave for the section.
+function formOctave(t){
+  const at = formBarAt(t); if(!at) return 0;
+  const r = at.c.feel.register;
+  return r < .34 ? -1 : r > .66 ? 1 : 0;
+}
+// COLOR: newly drawn notes lean toward the scale's color tone (above the middle) or the root and fifth (below).
+function formColorNote(midi, t){
+  const H = harmonyAt(t); if(!H.c) return midi;
+  const b = H.c.feel.brightness;
+  if(Math.random() >= Math.abs(b-.5)*1.2) return midi;
+  const ok = (b > .5 ? (H.color!=null ? [H.color] : []) : [0,7]).filter(x=>H.pcs.includes(x));
+  if(!ok.length) return midi;
+  let best = midi, bd = 99;
+  for(let d=-6; d<=6; d++){ const pc = ((midi+d-H.root)%12+12)%12; if(ok.includes(pc) && Math.abs(d)<bd){ bd=Math.abs(d); best=midi+d; } }
+  return best;
+}
+function formTick(winEnd){
+  if(!formLive) return;
+  formBar(Math.floor((jam.beatAt(winEnd)+1)/4)); // each bar is decided and announced a beat ahead of its downbeat
+}
+
+/* ---------- messages: Form Link on its own channel, keys over Jam Link ---------- */
+var formId = Math.random().toString(36).slice(2,10);
+var formChannel = null; try{ formChannel = new BroadcastChannel('aaronvandorn-form-v1'); }catch(e){}
+if(formChannel) formChannel.onmessage = e=>{ const m=e.data; if(m && m.v===1 && m.t==='chart-request' && m.from!==formId && FORM.on) formPost({ t:'chart', chart:FORM.chart }); };
+function formPost(msg){ msg.v=1; msg.from=formId; msg.app='bmm'; if(formChannel){ try{ formChannel.postMessage(msg); }catch(e){} } }
+function formSendChart(){ if(FORM.on) formPost({ t:'chart', chart:FORM.chart }); }
+function formAnnounce(c){
+  const at = jam.timeOfBeat(c.bar*4);
+  let sharedBeat = null; try{ sharedBeat = jam.debug().originBeat + c.bar*4; }catch(e){}
+  formPost({ t:'bar', wall: performance.timeOrigin + performance.now() + (at-audioCtx.currentTime)*1000, sharedBeat, bar:c.bar,
+    section:c.section, index:c.index, barInSection:c.barInSection, barsLeft:c.barsLeft, last:c.last, root:c.root, mode:c.mode,
+    scale:c.scale, feel:c.feel, enter:c.enter, changed:c.changed, next:c.next });
+  setTimeout(()=>{ if(formLive && formLive.bars.get(c.bar)===c) formDownbeat(c); }, Math.max(0,(at-audioCtx.currentTime)*1000));
+}
+// At each downbeat: show it, and on a new section move the ROOT/SCALE selects and tell linked apps.
+function formDownbeat(c){
+  if(c.changed){
+    rootIndex = c.root; rootSelect.value = rootIndex;
+    scaleName = MODE_NAMES[c.mode]; scaleSelect.value = scaleName;
+    jam.userKey(c.root, c.mode);
+  }
+  formRenderNow(c);
+}
+
+/* ---------- UI ---------- */
+var formEl = id => document.getElementById(id);
+var FORM_SEC_VARS = { A:'var(--amber)', B:'var(--cyan)', C:'var(--violet)', D:'var(--red)' };
+function formKeyName(root, mode){ return FORM_NOTE_NAMES[root]+' '+MODE_NAMES[mode]; }
+function formLengthText(x){
+  if(x.length.type==='fixed') return x.length.bars+' bars';
+  const r = x.length.rule;
+  return `Vamp ${x.length.min}–${x.length.max} bars, until `+(r.kind==='gate' ? `bar clock ${r.a} ${r.op} ${r.b}` : `${r.pct}% chance a bar`);
+}
+function formRenderNow(c){
+  const ch = FORM.chart, L = c ? c.section : ch.order[0], x = ch.sections[L];
+  if(!x) return;
+  const nL = c ? c.next.section : ch.order[formNextIndex(0)], nx = ch.sections[nL];
+  const box = formEl('formNow');
+  box.style.setProperty('--sec', FORM_SEC_VARS[L]); box.style.setProperty('--sec-next', FORM_SEC_VARS[nL]);
+  box.classList.toggle('idle', !c);
+  formEl('formLetter').textContent = L;
+  formEl('formKey').textContent = formKeyName(x.root, x.mode);
+  const len = formLenOf(x), bis = c ? c.barInSection : 0;
+  formEl('formWhere').textContent = !FORM.on ? 'Off. The voices use the ROOT and SCALE above.'
+    : !c ? 'Starts with Play · '+formLengthText(x)
+    : (len ? `Bar ${bis+1} of ${len}` : `Bar ${bis+1} · ${formLengthText(x)}`) + (c.last ? ' · last bar' : '');
+  const nx_ = formEl('formNext'); nx_.textContent = 'Then ';
+  const b = document.createElement('b'); b.textContent = nL; nx_.appendChild(b);
+  nx_.appendChild(document.createTextNode(` · ${formKeyName(nx.root, nx.mode)} · enters ${nx.enter}`));
+  const m = formEl('formMeter'); m.innerHTML = '';
+  const total = len || Math.max(Math.min(x.length.max, 32), bis+1);
+  for(let i=0;i<total;i++){ const el=document.createElement('i'); el.className = i<bis ? 'done' : (i===bis && c) ? 'cur' : (!len && i>=x.length.min ? 'open' : ''); m.appendChild(el); }
+  const scale = c ? c.scale : formScaleOf(x), color = FORM_COLOR_TONE[x.mode], sb = formEl('formScale'); sb.innerHTML = '';
+  for(let i=0;i<12;i++){ const pc=(x.root+i)%12, sp=document.createElement('span'); sp.textContent = FORM_NOTE_NAMES[pc];
+    if(scale.includes(pc)) sp.className = 'in'+(i===0?' root':'')+(color===i?' color':''); sb.appendChild(sp); }
+  sb.title = c && c.scale.length < c.fullScale.length ? 'Pivot bar: only the notes both scales share' : 'Scale in this bar (underlined: the color tone)';
+  document.querySelectorAll('#formOrder .formcue').forEach((el,i)=>el.classList.toggle('cur', !!c && i===c.index));
+  formEl('formFlag').textContent = formLive && formLive.cueArmed ? 'Moving on after this bar' : formLive && formLive.cue ? 'Moving on after the next bar' : '';
+  formEl('formCueBtn').disabled = !formLive;
+}
+function formRenderOrder(){
+  const o = formEl('formOrder'); o.innerHTML = '';
+  FORM.chart.order.forEach((L,i)=>{
+    const x = FORM.chart.sections[L], b = document.createElement('button');
+    b.className = 'formcue'; b.style.setProperty('--sec', FORM_SEC_VARS[L]);
+    b.title = 'Remove from the form'; b.setAttribute('aria-label', `Section ${L}, position ${i+1}. Remove`);
+    b.textContent = L; const sm = document.createElement('small'); sm.textContent = x.length.type==='fixed' ? x.length.bars : '∞'; b.appendChild(sm);
+    b.onclick = ()=>{ if(FORM.chart.order.length<2) return; FORM.chart.order.splice(i,1); formEdited(); };
+    o.appendChild(b);
+  });
+  FORM_LETTERS.forEach(L=>{
+    const b = document.createElement('button'); b.className = 'ghostbtn formadd'; b.style.color = FORM_SEC_VARS[L];
+    b.textContent = '+'+L; b.title = `Add section ${L} to the end`;
+    b.onclick = ()=>{ if(!FORM.chart.sections[L]) FORM.chart.sections[L] = formSec(7,'mixolydian',{type:'fixed',bars:8},{density:.5,register:.5,brightness:.5});
+      FORM.chart.order.push(L); FORM.editing = L; formEdited(); };
+    o.appendChild(b);
+  });
+}
+function formSetSeg(id, v){ document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.v===v))); }
+function formFeelText(k, f){
+  if(k==='register') return f<.34 ? 'octave down' : f>.66 ? 'octave up' : 'as set';
+  const p = Math.round(Math.abs(f-.5)*200);
+  if(k==='density') return p===0 ? 'as set' : `${p}% of bars ${f>.5?'wider':'narrower'}`;
+  return p===0 ? 'as drawn' : f>.5 ? 'toward color tone' : 'toward root & fifth';
+}
+function formRenderEditor(){
+  if(!FORM.chart.sections[FORM.editing]) FORM.editing = FORM.chart.order[0];
+  const tabs = formEl('formTabs'); tabs.innerHTML = '';
+  FORM_LETTERS.filter(L=>FORM.chart.sections[L]).forEach(L=>{
+    const b = document.createElement('button'); b.textContent = L; b.setAttribute('role','tab'); b.setAttribute('aria-selected', String(L===FORM.editing));
+    b.style.setProperty('--sec', FORM_SEC_VARS[L]); b.onclick = ()=>{ FORM.editing = L; formRenderEditor(); }; tabs.appendChild(b);
+  });
+  const x = FORM.chart.sections[FORM.editing];
+  formEl('formEdit').style.setProperty('--sec', FORM_SEC_VARS[FORM.editing]);
+  formEl('formRoot').value = x.root; formEl('formMode').value = x.mode; formSetSeg('formEnter', x.enter);
+  formEl('formEnterHint').textContent = FORM_ENTER_HINT[x.enter];
+  const vamp = x.length.type==='vamp'; formSetSeg('formLenType', x.length.type);
+  formEl('formwBars').hidden = vamp; formEl('formwMin').hidden = !vamp; formEl('formwMax').hidden = !vamp; formEl('formwRule').hidden = !vamp;
+  if(!vamp){ formEl('formBars').value = x.length.bars; formEl('formLenHint').textContent = ''; }
+  else {
+    const r = x.length.rule, g = r.kind==='gate';
+    formEl('formMin').value = x.length.min; formEl('formMax').value = x.length.max; formSetSeg('formRuleKind', r.kind);
+    formEl('formwA').hidden = formEl('formwB').hidden = formEl('formwOp').hidden = !g; formEl('formwPct').hidden = g;
+    if(g){ formEl('formA').value = r.a; formEl('formB').value = r.b; formEl('formOp').value = r.op; }
+    else { formEl('formPct').value = r.pct; formEl('formvPct').textContent = r.pct+'%'; }
+    formEl('formLenHint').textContent = formLengthText(x) + (g ? '. The bars played in the section are counted; a count that is a multiple of a bar clock sets that clock high, and the two go through the logic.' : '.');
+  }
+  [['formDensity','formvDensity','density'],['formRegister','formvRegister','register'],['formBright','formvBright','brightness']].forEach(([i,v,k])=>{
+    formEl(i).value = Math.round(x.feel[k]*100); formEl(v).textContent = formFeelText(k, x.feel[k]); });
+  formEl('formPreset').value = Object.keys(FORM_PRESETS).find(k=>FORM_PRESETS[k].name===FORM.chart.name) || '';
+}
+function formRenderAll(){
+  formRenderOrder(); formRenderEditor();
+  formEl('formOnBtn').classList.toggle('on', FORM.on);
+  formEl('formOnBtn').setAttribute('aria-pressed', String(FORM.on));
+  formEl('formOnBtn').textContent = FORM.on ? 'Following the chart' : 'Follow the chart';
+  rootSelect.disabled = scaleSelect.disabled = FORM.on;
+  rootSelect.title = scaleSelect.title = FORM.on ? 'Set by the Form chart' : '';
+  formRenderNow(formLive ? formLive.ctx : null);
+}
+function formEdited(keepName){ if(!keepName) FORM.chart.name = 'Your chart'; formRenderAll(); formPersist(); formSendChart(); }
+function formSetOn(on, quiet){
+  FORM.on = on;
+  if(on){
+    const first = FORM.chart.sections[FORM.chart.order[0]];
+    if(isPlaying && audioCtx) formStart(Math.floor(jam.beatAt(audioCtx.currentTime + LOOKAHEAD)/4) + 1); // comes in on the next bar line
+    else { rootIndex = first.root; rootSelect.value = rootIndex; scaleName = MODE_NAMES[first.mode]; scaleSelect.value = scaleName; }
+  } else formStop();
+  if(!quiet){ formRenderAll(); formPersist(); formSendChart(); }
+}
+
+/* wiring */
+FORM_NOTE_NAMES.forEach((n,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=n; formEl('formRoot').appendChild(o); });
+Object.keys(SCALES).forEach(n=>{ const o=document.createElement('option'); o.value=MODE_IDS[n]; o.textContent=n; formEl('formMode').appendChild(o); });
+Object.keys(FORM_PRESETS).forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=FORM_PRESETS[k].name; formEl('formPreset').appendChild(o); });
+(function(){ const o=document.createElement('option'); o.value=''; o.textContent='Your chart'; formEl('formPreset').appendChild(o); })();
+function formCur(){ return FORM.chart.sections[FORM.editing]; }
+formEl('formOnBtn').onclick = ()=>formSetOn(!FORM.on);
+formEl('formCueBtn').onclick = ()=>{ if(!formLive) return; formLive.cue = true; formRenderNow(formLive.ctx); };
+formEl('formPreset').onchange = ()=>{ const k = formEl('formPreset').value; if(!FORM_PRESETS[k]) return;
+  FORM.chart = formFresh(k); FORM.editing = FORM.chart.order[0]; if(formLive) formLive.index = Math.min(formLive.index, FORM.chart.order.length-1); formEdited(true); };
+formEl('formRoot').onchange = ()=>{ formCur().root = +formEl('formRoot').value; formEdited(); };
+formEl('formMode').onchange = ()=>{ formCur().mode = formEl('formMode').value; formEdited(); };
+function formSegWire(id, fn){ document.querySelectorAll('#'+id+' button').forEach(b=>b.onclick = ()=>{ fn(b.dataset.v); formEdited(); }); }
+formSegWire('formEnter', v=>{ formCur().enter = v; });
+formSegWire('formLenType', v=>{ const x = formCur(); if(v===x.length.type) return;
+  x.length = v==='fixed' ? { type:'fixed', bars: x.length.min||8 } : { type:'vamp', min: x.length.bars||8, max: Math.max(16,(x.length.bars||8)*3), rule:{kind:'gate',a:3,b:5,op:'AND'} }; });
+formSegWire('formRuleKind', v=>{ formCur().length.rule = v==='gate' ? {kind:'gate',a:3,b:5,op:'AND'} : {kind:'chance',pct:25}; });
+function formNum(id, lo, hi, fn){ formEl(id).onchange = ()=>{ fn(clampN(Math.round(+formEl(id).value||lo),lo,hi)); formEdited(); }; }
+formNum('formBars',1,64,v=>{ formCur().length.bars = v; });
+formNum('formMin',1,64,v=>{ const L=formCur().length; L.min=v; if(L.max<v) L.max=v; });
+formNum('formMax',1,128,v=>{ const L=formCur().length; L.max=v; if(L.min>v) L.min=v; });
+formNum('formA',1,16,v=>{ formCur().length.rule.a = v; });
+formNum('formB',1,16,v=>{ formCur().length.rule.b = v; });
+formEl('formOp').onchange = ()=>{ formCur().length.rule.op = formEl('formOp').value; formEdited(); };
+formEl('formPct').oninput = ()=>{ formEl('formvPct').textContent = formEl('formPct').value+'%'; };
+formEl('formPct').onchange = ()=>{ formCur().length.rule.pct = +formEl('formPct').value; formEdited(); };
+[['formDensity','formvDensity','density'],['formRegister','formvRegister','register'],['formBright','formvBright','brightness']].forEach(([i,v,k])=>{
+  formEl(i).oninput = ()=>{ const f = +formEl(i).value/100; formCur().feel[k] = f; formEl(v).textContent = formFeelText(k, f); };
+  formEl(i).onchange = ()=>formEdited();
+});
+try{ const saved = JSON.parse(localStorage.getItem('bmm:form')); if(saved){ const c = formCleanChart(saved.chart); if(c) FORM.chart = c; if(saved.on===true) formSetOn(true, true); } }catch(e){}
+FORM.editing = FORM.chart.order[0];
+formRenderAll();
 
 /* ---------- Jam Clips: Tape Loop Deck can record bar-exact clips of this app while it plays
    (see the JAM-CLIPS block). Bars are counted on the Jam Link beat grid, 4 beats to the bar. ---------- */
