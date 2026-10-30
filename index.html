@@ -370,6 +370,17 @@
   .vvol input[type=range]{width:90px;}
   .vvolv{font-family:'Space Mono',monospace;color:var(--amber);min-width:22px;text-align:right;font-weight:400;}
 
+  /* generative clock modes */
+  .euclidRow .grp{display:none;flex-direction:column;gap:4px;}
+  .euclidRow .grp.on{display:flex;}
+  .euclidRow select{font-size:10.5px;padding:3px 4px;}
+  .euclidRow .rerollBtn{padding:4px 8px;margin-top:2px;}
+  /* sieve (PITCH tab) */
+  .sievestrip{display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:12px;max-width:560px;}
+  .scell{height:28px;border:1px solid var(--line-dim);border-radius:3px;background:var(--panel2);font:10px 'Space Mono',monospace;display:flex;align-items:center;justify-content:center;color:var(--label-dim);}
+  .scell.on{background:var(--vc,var(--amber));border-color:var(--vc,var(--amber));color:var(--ink);}
+  .scell.root{outline:2px solid var(--label);outline-offset:1px;}
+  .sievebox.off{opacity:.35;pointer-events:none;}
   @media (max-width:720px){
     .clockrow{grid-template-columns:repeat(3,1fr);}
   }
@@ -2175,10 +2186,13 @@ function quarterSec(){ return 60/bpm; }
 function clockPeriod(divMult){ return quarterSec()*divMult; }
 
 /* ---------- init clocks ---------- */
+const CA_RULES = [30,90,110,150,54,22,18,126,60,45];
+const GONG_INSTS = [['gong','Gong'],['kenong','Kenong'],['kempul','Kempul'],['kethuk','Kethuk']];
 const CLOCK_COLOR_VARS = ['c0','c1','c2','c3','c4','c5'];
 const clockRow = document.getElementById('clockRow');
 for(let i=0;i<6;i++){
-  const c = { mode:'div', divIdx: DEFAULT_CLOCK_DIV_IDX[i], steps:8, pulses:3, offset:0, colorVar:CLOCK_COLOR_VARS[i] };
+  const c = { mode:'div', divIdx: DEFAULT_CLOCK_DIV_IDX[i], steps:8, pulses:3, offset:0, colorVar:CLOCK_COLOR_VARS[i],
+              rule:30, seed:37, tap:5, bits:8, flip:12, dens:50, rnd:Math.floor(Math.random()*1e9), inst:'gong' };
   recomputeClockPattern(c);
   clocks.push(c);
   const mod = document.createElement('div');
@@ -2190,13 +2204,37 @@ for(let i=0;i<6;i++){
     <select class="modeSel">
       <option value="div">Division</option>
       <option value="euclid">Euclid</option>
+      <option value="ca">Cellular auto.</option>
+      <option value="lfsr">Shift register</option>
+      <option value="gong">Gong cycle</option>
     </select>
     <select class="divSel"></select>
     <div class="euclidRow off">
-      <div class="miniLabel">STEPS <span class="stepsVal">8</span></div>
+      <div class="miniLabel"><span class="stepsName">STEPS</span> <span class="stepsVal">8</span></div>
       <input type="range" class="stepsSlider" min="2" max="16" value="8">
-      <div class="miniLabel">PULSES <span class="pulsesVal">3</span></div>
-      <input type="range" class="pulsesSlider" min="0" max="16" value="3">
+      <div class="grp g-euclid">
+        <div class="miniLabel">PULSES <span class="pulsesVal">3</span></div>
+        <input type="range" class="pulsesSlider" min="0" max="16" value="3">
+      </div>
+      <div class="grp g-ca">
+        <select class="ruleSel" title="Cellular automaton rule">${CA_RULES.map(r=>`<option value="${r}">Rule ${r}</option>`).join('')}</select>
+        <div class="miniLabel">SEED <span class="seedVal">37</span></div>
+        <input type="range" class="seedSlider" min="1" max="255" value="37">
+        <div class="miniLabel">TAP CELL <span class="tapVal">5</span></div>
+        <input type="range" class="tapSlider" min="0" max="15" value="5">
+      </div>
+      <div class="grp g-lfsr">
+        <div class="miniLabel">BITS <span class="bitsVal">8</span></div>
+        <input type="range" class="bitsSlider" min="4" max="16" value="8">
+        <div class="miniLabel">FLIP <span class="flipVal">12%</span></div>
+        <input type="range" class="flipSlider" min="0" max="100" value="12">
+        <div class="miniLabel">DENSITY <span class="densVal">50%</span></div>
+        <input type="range" class="densSlider" min="10" max="90" value="50">
+        <button class="chip rerollBtn" title="New random register contents">REROLL</button>
+      </div>
+      <div class="grp g-gong">
+        <select class="instSel" title="Which colotomic part this clock plays">${GONG_INSTS.map(g=>`<option value="${g[0]}">${g[1]}</option>`).join('')}</select>
+      </div>
       <div class="miniLabel">OFFSET <span class="offsetVal">0</span></div>
       <input type="range" class="offsetSlider" min="0" max="15" value="0">
       <div class="euclidDots"></div>
@@ -2213,58 +2251,69 @@ for(let i=0;i<6;i++){
 
   const euclidRow = mod.querySelector('.euclidRow');
   const dotsEl = mod.querySelector('.euclidDots');
-  const stepsSlider = mod.querySelector('.stepsSlider');
-  const pulsesSlider = mod.querySelector('.pulsesSlider');
-  const offsetSlider = mod.querySelector('.offsetSlider');
+  const $ = s => mod.querySelector(s);
+  const stepsSlider = $('.stepsSlider'), pulsesSlider = $('.pulsesSlider'), offsetSlider = $('.offsetSlider');
 
   function renderDots(){
     dotsEl.innerHTML='';
-    for(let s=0;s<c.steps;s++){
+    for(let s=0;s<c.pattern.length;s++){
       const d=document.createElement('div');
       d.className='estep'+(isStepActive(c,s)?' on':'');
       dotsEl.appendChild(d);
     }
   }
+  function refresh(){ recomputeClockPattern(c); renderDots(); }
+  function applyModeUI(){
+    euclidRow.classList.toggle('off', c.mode==='div');
+    mod.querySelectorAll('.grp').forEach(g=>g.classList.toggle('on', g.classList.contains('g-'+c.mode)));
+    $('.stepsName').textContent = c.mode==='gong' ? 'CYCLE' : (c.mode==='euclid' ? 'STEPS' : 'LOOP');
+    stepsSlider.max = c.mode==='euclid' ? 16 : 32;
+    if(c.steps > +stepsSlider.max) c.steps = +stepsSlider.max;
+    stepsSlider.value = c.steps; $('.stepsVal').textContent = c.steps;
+    offsetSlider.max = c.steps-1;
+    if(c.offset >= c.steps){ c.offset = c.steps-1; }
+    offsetSlider.value = c.offset; $('.offsetVal').textContent = c.offset;
+  }
   renderDots();
 
-  mod.querySelector('.modeSel').addEventListener('change',e=>{
+  $('.modeSel').addEventListener('change',e=>{
     c.mode = e.target.value;
-    euclidRow.classList.toggle('off', c.mode!=='euclid');
+    applyModeUI(); refresh();
   });
   stepsSlider.addEventListener('input',e=>{
     c.steps = parseInt(e.target.value,10);
-    mod.querySelector('.stepsVal').textContent = c.steps;
-    if(c.pulses > c.steps){ c.pulses = c.steps; pulsesSlider.value = c.pulses; mod.querySelector('.pulsesVal').textContent=c.pulses; }
+    $('.stepsVal').textContent = c.steps;
+    if(c.pulses > c.steps){ c.pulses = c.steps; pulsesSlider.value = c.pulses; $('.pulsesVal').textContent=c.pulses; }
     pulsesSlider.max = c.steps;
     offsetSlider.max = c.steps-1;
-    if(c.offset >= c.steps){ c.offset = c.steps-1; offsetSlider.value=c.offset; mod.querySelector('.offsetVal').textContent=c.offset; }
-    recomputeClockPattern(c);
-    renderDots();
+    if(c.offset >= c.steps){ c.offset = c.steps-1; offsetSlider.value=c.offset; $('.offsetVal').textContent=c.offset; }
+    refresh();
   });
-  pulsesSlider.addEventListener('input',e=>{
-    c.pulses = parseInt(e.target.value,10);
-    mod.querySelector('.pulsesVal').textContent = c.pulses;
-    recomputeClockPattern(c);
-    renderDots();
-  });
-  offsetSlider.addEventListener('input',e=>{
-    c.offset = parseInt(e.target.value,10);
-    mod.querySelector('.offsetVal').textContent = c.offset;
-    renderDots();
-  });
+  pulsesSlider.addEventListener('input',e=>{ c.pulses = parseInt(e.target.value,10); $('.pulsesVal').textContent = c.pulses; refresh(); });
+  offsetSlider.addEventListener('input',e=>{ c.offset = parseInt(e.target.value,10); $('.offsetVal').textContent = c.offset; renderDots(); });
+  $('.ruleSel').addEventListener('change',e=>{ c.rule = parseInt(e.target.value,10); refresh(); });
+  $('.seedSlider').addEventListener('input',e=>{ c.seed = parseInt(e.target.value,10); $('.seedVal').textContent = c.seed; refresh(); });
+  $('.tapSlider').addEventListener('input',e=>{ c.tap = parseInt(e.target.value,10); $('.tapVal').textContent = c.tap; refresh(); });
+  $('.bitsSlider').addEventListener('input',e=>{ c.bits = parseInt(e.target.value,10); $('.bitsVal').textContent = c.bits; refresh(); });
+  $('.flipSlider').addEventListener('input',e=>{ c.flip = parseInt(e.target.value,10); $('.flipVal').textContent = c.flip+'%'; refresh(); });
+  $('.densSlider').addEventListener('input',e=>{ c.dens = parseInt(e.target.value,10); $('.densVal').textContent = c.dens+'%'; refresh(); });
+  $('.rerollBtn').addEventListener('click',()=>{ c.rnd = Math.floor(Math.random()*1e9); refresh(); });
+  $('.instSel').addEventListener('change',e=>{ c.inst = e.target.value; refresh(); });
 
   function syncUI(){
-    mod.querySelector('.modeSel').value = c.mode;
+    $('.modeSel').value = c.mode;
     divSel.value = c.divIdx;
-    euclidRow.classList.toggle('off', c.mode!=='euclid');
-    stepsSlider.value = c.steps;
-    mod.querySelector('.stepsVal').textContent = c.steps;
     pulsesSlider.max = c.steps;
     pulsesSlider.value = c.pulses;
-    mod.querySelector('.pulsesVal').textContent = c.pulses;
-    offsetSlider.max = c.steps-1;
-    offsetSlider.value = c.offset;
-    mod.querySelector('.offsetVal').textContent = c.offset;
+    $('.pulsesVal').textContent = c.pulses;
+    $('.ruleSel').value = c.rule;
+    $('.seedSlider').value = c.seed; $('.seedVal').textContent = c.seed;
+    $('.tapSlider').value = c.tap; $('.tapVal').textContent = c.tap;
+    $('.bitsSlider').value = c.bits; $('.bitsVal').textContent = c.bits;
+    $('.flipSlider').value = c.flip; $('.flipVal').textContent = c.flip+'%';
+    $('.densSlider').value = c.dens; $('.densVal').textContent = c.dens+'%';
+    $('.instSel').value = c.inst;
+    applyModeUI();
     renderDots();
   }
   c.syncUI = syncUI;
@@ -3414,6 +3463,51 @@ function auditionVoice(v){
   playEngineNote(audioCtx, bus.input, snap.engine, snap.p, root, audioCtx.currentTime+0.02, noteDur(v, snap), {from:null, seed:0.5, env:snap.env});
 }
 
+function buildPitchPane(v, el){
+  const pane = el.querySelector('.pane-pitch'), s = v.sieve;
+  pane.innerHTML = `
+    <div class="soundtop">
+      <div class="field"><label>PITCH SET</label>
+        <select class="pitchSetSel">
+          <option value="scale" ${v.pitchSet==='scale'?'selected':''}>Scale (follows the key, mode and Form)</option>
+          <option value="sieve" ${v.pitchSet==='sieve'?'selected':''}>Xenakis sieve</option>
+        </select>
+      </div>
+    </div>
+    <div class="enginedesc">A sieve builds the note pool from arithmetic, the way the gate logic builds rhythm: set A is every Nth semitone from an offset, set B is another, and a logic gate combines them. The notes that come out true, counted up from the key's root, are the pool the LFO sample-and-hold draws from. Switch on KEEP TO SCALE to intersect the result with the current mode, so it still follows the Form chart.</div>
+    <div class="sievebox ${v.pitchSet==='sieve'?'':'off'}">
+      <div class="sgroup"><div class="sgrid">
+        <div class="sctl"><label>A: EVERY <span class="sv m1V">${s.m1}</span></label><input type="range" class="m1" min="2" max="12" value="${s.m1}"></div>
+        <div class="sctl"><label>A: OFFSET <span class="sv r1V">${s.r1}</span></label><input type="range" class="r1" min="0" max="${s.m1-1}" value="${s.r1}"></div>
+        <div class="sctl"><label>COMBINE</label><select class="sop">${LOGIC_OPS.map(o=>`<option ${o===s.op?'selected':''}>${o}</option>`).join('')}</select></div>
+        <div class="sctl"><label>B: EVERY <span class="sv m2V">${s.m2}</span></label><input type="range" class="m2" min="2" max="12" value="${s.m2}"></div>
+        <div class="sctl"><label>B: OFFSET <span class="sv r2V">${s.r2}</span></label><input type="range" class="r2" min="0" max="${s.m2-1}" value="${s.r2}"></div>
+        <div class="sctl"><label>KEEP TO SCALE</label><button class="chip tgl ${s.inScale?'on':''}">${s.inScale?'ON':'OFF'}</button></div>
+      </div></div>
+    </div>
+    <div class="sievestrip"></div>
+    <div class="enginedesc sievecount" style="margin-top:8px;"></div>`;
+  const $ = q => pane.querySelector(q);
+  function strip(){
+    const H = harmonyAt(audioCtx ? audioCtx.currentTime : 0);
+    const on = new Set(sieveSet(v, H)), cells = [];
+    for(let n=0;n<OCT_SPAN*12;n++) cells.push(`<div class="scell${on.has(n)?' on':''}${n===0?' root':''}">${n}</div>`);
+    $('.sievestrip').innerHTML = cells.join('');
+    $('.sievecount').textContent = on.size ? on.size+' notes across '+OCT_SPAN+' octaves (numbers are semitones above the root)' : 'This sieve is empty here, so the voice falls back to the scale.';
+  }
+  strip();
+  $('.pitchSetSel').addEventListener('change',e=>{ v.pitchSet=e.target.value; $('.sievebox').classList.toggle('off', v.pitchSet!=='sieve'); });
+  [['m1','m1V','r1'],['m2','m2V','r2']].forEach(([mk,mv,rk])=>{
+    $('.'+mk).addEventListener('input',e=>{
+      s[mk] = parseInt(e.target.value,10); $('.'+mv).textContent = s[mk];
+      $('.'+rk).max = s[mk]-1; if(s[rk]>=s[mk]){ s[rk]=s[mk]-1; $('.'+rk).value=s[rk]; $('.'+rk+'V').textContent=s[rk]; }
+      strip();
+    });
+    $('.'+rk).addEventListener('input',e=>{ s[rk]=parseInt(e.target.value,10); $('.'+rk+'V').textContent=s[rk]; strip(); });
+  });
+  $('.sop').addEventListener('change',e=>{ s.op=e.target.value; strip(); });
+  $('.sievebox .tgl').addEventListener('click',e=>{ s.inScale=!s.inScale; e.target.classList.toggle('on',s.inScale); e.target.textContent=s.inScale?'ON':'OFF'; strip(); });
+}
 function switchVoiceTab(el, which){
   el.querySelectorAll('.vtab').forEach(b=>b.classList.toggle('active', b.dataset.tab===which));
   el.querySelectorAll('.vpane').forEach(p=>p.classList.toggle('hidden', !p.classList.contains('pane-'+which)));
@@ -3425,6 +3519,13 @@ function syncLevelUI(v, el){
   const hl = el.querySelector('.vvolv'); if(hl) hl.textContent = pct;
   const pv = el.querySelector('.pane-sound input[data-id="level"]'); if(pv) pv.value = v.synth.params.level;
   const pl = el.querySelector('.pane-sound .sv[data-v="level"]'); if(pl) pl.textContent = pct+'%';
+}
+function restoreSieve(s){
+  const d = {m1:3, r1:0, m2:4, r2:1, op:'OR', inScale:false};
+  if(!s || typeof s!=='object') return d;
+  const cl = (n,lo,hi,df)=> Number.isFinite(+n) ? Math.max(lo,Math.min(hi,Math.round(+n))) : df;
+  const m1 = cl(s.m1,2,12,3), m2 = cl(s.m2,2,12,4);
+  return {m1, r1:Math.min(m1-1,cl(s.r1,0,11,0)), m2, r2:Math.min(m2-1,cl(s.r2,0,11,1)), op:LOGIC_OPS.includes(s.op)?s.op:'OR', inScale:!!s.inScale};
 }
 function restoreSynth(sv){
   // Older saved patterns only stored a basic waveform ('tone'); map those onto the Init engine.
@@ -3458,6 +3559,7 @@ function makeVoice(){
     octave:0,
     patternLength:8,
     predictability:35,
+    pitchSet:'scale', sieve:{m1:3, r1:0, m2:4, r2:1, op:'OR', inScale:false},
     baseBeats:0.5, holdMode:'ring', holdUntil:0, lenMode:'fixed', rhythmSH:0, phraseArc:0,
     durS:new Array(8).fill(null), durR:new Array(8).fill(null),
     pattern:new Array(8).fill(null),
@@ -3566,11 +3668,29 @@ function snapToScale(midi, t){
   return midi + delta;
 }
 
+/* Xenakis-style sieve: two residue classes (every m-th semitone from an offset) combined with a logic gate.
+   The semitones where the result is true, measured up from the key's root, are the voice's note pool. */
+function sieveSet(v, H){
+  const s = v.sieve, out = [], span = OCT_SPAN*12;
+  for(let n=0;n<span;n++){
+    let on = applyLogic(s.op, n%s.m1===s.r1%s.m1, n%s.m2===s.r2%s.m2);
+    if(on && s.inScale) on = H.pcs.includes(n%12);
+    if(on) out.push(n);
+  }
+  return out;
+}
 function drawNote(v,t){
   if(v.harmonicLink && v!==voices[0]){
     return drawHarmonicNote(v,t);
   }
   const H = harmonyAt(t);
+  if(v.pitchSet==='sieve'){
+    const L = sieveSet(v, H);
+    if(L.length){
+      const i = Math.max(0, Math.min(L.length-1, Math.floor(lfoValue(v,t)*L.length)));
+      return 60 + H.root + L[i];
+    }
+  }
   const scale = H.pcs;
   const totalDegrees = scale.length*OCT_SPAN;
   const val = lfoValue(v,t);
@@ -3610,12 +3730,65 @@ function euclideanPattern(N,K){
   }
   return pattern;
 }
-function recomputeClockPattern(c){ c.pattern = euclideanPattern(c.steps, c.pulses); }
+/* ---------- generative clock patterns ----------
+   Every non-Division clock is a looping pattern of N steps (like Euclid); CA, shift register and gong-cycle
+   modes just fill that pattern differently, so all of them behave identically in the gate logic. */
+function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+/* 1-D cellular automaton on a ring of 16 cells; the output is one watched cell, one generation per step */
+function caPattern(c){
+  const W=16, N=c.steps, rule=c.rule&255;
+  let cells=[]; const sd=((c.seed&255)|((c.seed&255)<<8)); for(let i=0;i<W;i++) cells.push((sd>>i)&1);
+  const out=[];
+  for(let g=0;g<N;g++){
+    out.push(cells[c.tap%W]===1);
+    const nx=new Array(W);
+    for(let i=0;i<W;i++){ const l=cells[(i+W-1)%W], m=cells[i], r=cells[(i+1)%W]; nx[i]=(rule>>(l*4+m*2+r))&1; }
+    cells=nx;
+  }
+  if(!out.some(Boolean)) out[0]=true;   // never fully silent
+  return out;
+}
+/* looping shift register (Turing-Machine style): FLIP is the chance the recycled bit is inverted, DENS the share of gates */
+function lfsrPattern(c){
+  const L=Math.max(4,Math.min(16,c.bits)), N=c.steps, rnd=mulberry(c.rnd>>>0);
+  let reg=0; for(let i=0;i<L;i++) if(rnd()<0.5) reg|=1<<i;
+  if(!reg) reg=1;
+  const thr=Math.round(c.dens/100*16), out=[];
+  for(let g=0;g<N;g++){
+    let fb=reg&1; if(rnd()*100<c.flip) fb^=1;
+    reg=(reg>>1)|(fb<<(L-1));
+    out.push((reg&15)<thr);
+  }
+  if(!out.some(Boolean)) out[0]=true;
+  return out;
+}
+/* gamelan-style colotomic cycle: the stylised roles of the colotomic instruments over one cycle of N steps */
+function gongPattern(c){
+  const N=Math.max(4,c.steps), q=Math.max(1,Math.floor(N/4)), e=Math.max(1,Math.floor(N/8)), out=[];
+  for(let s=0;s<N;s++){
+    const p=s+1;
+    switch(c.inst){
+      case 'gong':   out.push(p===N); break;
+      case 'kenong': out.push(p%q===0); break;
+      case 'kempul': out.push(p%q===e); break;
+      default:       out.push(p%2===1); break;   // kethuk: the odd beats, in between the heavier strokes
+    }
+  }
+  return out;
+}
+function recomputeClockPattern(c){
+  switch(c.mode){
+    case 'ca':   c.pattern = caPattern(c); break;
+    case 'lfsr': c.pattern = lfsrPattern(c); break;
+    case 'gong': c.pattern = gongPattern(c); break;
+    default:     c.pattern = euclideanPattern(c.steps, c.pulses);
+  }
+}
 
 function stepBeats(clock){ return CLOCK_DIVS[clock.divIdx].m; } // a clock step, measured in transport beats
-function clockN(clock){ return clock.mode==='euclid' ? clock.steps : 1; }
+function clockN(clock){ return clock.mode==='div' ? 1 : clock.pattern.length; }
 function isStepActive(clock, cycleStep){
-  if(clock.mode!=='euclid') return true;
+  if(clock.mode==='div') return true;
   const N = clock.pattern.length;
   return clock.pattern[(cycleStep + clock.offset) % N];
 }
@@ -3651,15 +3824,44 @@ function edgesInWindow(clock, winStart, winEnd){
   return edges;
 }
 
+/* ---------- gate sources ----------
+   A voice's Clock A / B can be a clock (0-5) or another voice's combined gate: 100+k = Voice k+1, 200+k = NOT Voice k+1.
+   "NOT Voice 1" on Voice 2 gives interlocking parts (gamelan kotekan / hocket): Voice 2 only sounds when Voice 1 is silent.
+   Only one level of referencing is followed (a referenced voice's own voice-references read as silent), so there are no loops. */
+function srcGate(v, code, t, depth=0){
+  if(code<100) return gateAt(clocks[code], t);
+  const ref = voices[code%100];
+  if(!ref || ref===v || depth>0) return false;
+  const g = applyLogic(voiceLogic(ref,t), srcGate(ref,ref.clockA,t,1), srcGate(ref,ref.clockB,t,1));
+  return code>=200 ? !g : g;
+}
+function srcEdges(v, code, a, b, depth=0){
+  if(code<100) return edgesInWindow(clocks[code], a, b);
+  const ref = voices[code%100];
+  if(!ref || ref===v || depth>0) return [];
+  const inv = code>=200;
+  let sa = srcGate(ref,ref.clockA,a,1), sb = srcGate(ref,ref.clockB,a,1);
+  let prev = applyLogic(voiceLogic(ref,a), sa, sb);
+  const all = srcEdges(ref,ref.clockA,a,b,1).map(e=>({...e,src:'A'}))
+    .concat(srcEdges(ref,ref.clockB,a,b,1).map(e=>({...e,src:'B'}))).sort((x,y)=>x.time-y.time);
+  const out = [];
+  for(const e of all){
+    if(e.src==='A') sa = (e.type==='rise'); else sb = (e.type==='rise');
+    const c = applyLogic(voiceLogic(ref,e.time), sa, sb);
+    if(c!==prev){ out.push({time:e.time, type:(c!==inv)?'rise':'fall'}); prev=c; }
+  }
+  return out;
+}
+function srcColor(code){ return code<100 ? resolveClockColor(clocks[code]) : ((voices[code%100]||{}).color || '#888'); }
+
 /* ---------- scheduler ---------- */
 function processVoiceWindow(v, winStart, winEnd){
-  const cA = clocks[v.clockA], cB = clocks[v.clockB];
-  let stateA = gateAt(cA,winStart);
-  let stateB = gateAt(cB,winStart);
+  let stateA = srcGate(v,v.clockA,winStart);
+  let stateB = srcGate(v,v.clockB,winStart);
   let prevCombined = applyLogic(voiceLogic(v,winStart), stateA, stateB);
 
-  const edgesA = edgesInWindow(cA,winStart,winEnd).map(e=>({...e,src:'A'}));
-  const edgesB = edgesInWindow(cB,winStart,winEnd).map(e=>({...e,src:'B'}));
+  const edgesA = srcEdges(v,v.clockA,winStart,winEnd).map(e=>({...e,src:'A'}));
+  const edgesB = srcEdges(v,v.clockB,winStart,winEnd).map(e=>({...e,src:'B'}));
   const all = edgesA.concat(edgesB).sort((a,b)=>a.time-b.time);
 
   for(const e of all){
@@ -3694,10 +3896,9 @@ function shMult(v, step){
   return set[Math.min(n-1, Math.floor(s*n))];
 }
 function scanGate(v, t, stA, stB){
-  const cA = clocks[v.clockA], cB = clocks[v.clockB];
   const horizon = t + 16*60/bpm;
-  const ev = edgesInWindow(cA,t-1e-6,horizon).map(e=>({...e,src:'A'}))
-    .concat(edgesInWindow(cB,t-1e-6,horizon).map(e=>({...e,src:'B'})))
+  const ev = srcEdges(v,v.clockA,t-1e-6,horizon).map(e=>({...e,src:'A'}))
+    .concat(srcEdges(v,v.clockB,t-1e-6,horizon).map(e=>({...e,src:'B'})))
     .sort((a,b)=>a.time-b.time);
   let a=stA, b=stB, fall=null, rise=null;
   for(const e of ev){
@@ -3872,9 +4073,9 @@ function drawScope(v){
     ctx.stroke();
   }
 
-  drawLane(laneATop, t=>gateAt(clocks[v.clockA],t), resolveClockColor(clocks[v.clockA]));
-  drawLane(laneBTop, t=>gateAt(clocks[v.clockB],t), resolveClockColor(clocks[v.clockB]));
-  drawLane(laneCTop, t=>applyLogic(v.logic, gateAt(clocks[v.clockA],t), gateAt(clocks[v.clockB],t)), v.color);
+  drawLane(laneATop, t=>srcGate(v,v.clockA,t), srcColor(v.clockA));
+  drawLane(laneBTop, t=>srcGate(v,v.clockB,t), srcColor(v.clockB));
+  drawLane(laneCTop, t=>applyLogic(voiceLogic(v,t), srcGate(v,v.clockA,t), srcGate(v,v.clockB,t)), v.color);
 
   // divider lines
   ctx.strokeStyle = 'rgba(255,255,255,0.08)';
@@ -3936,8 +4137,22 @@ function updateHarmonicReadout(v){
   if(el && v.lastInterval) el.textContent = v.lastInterval;
 }
 
-function clockOptionsHtml(selectedIdx){
-  return clocks.map((c,i)=>`<option value="${i}" ${i===selectedIdx?'selected':''}>Clock ${i+1}</option>`).join('');
+function clockOptionsHtml(selectedIdx, self){
+  let h = clocks.map((c,i)=>`<option value="${i}" ${i===selectedIdx?'selected':''}>Clock ${i+1}</option>`).join('');
+  const others = voices.map((vv,k)=>({vv,k})).filter(o=>o.vv!==self);
+  if(others.length){
+    h += '<optgroup label="Interlock with a voice">' +
+      others.map(o=>`<option value="${100+o.k}" ${100+o.k===selectedIdx?'selected':''}>Voice ${o.k+1} gate</option>`).join('') +
+      others.map(o=>`<option value="${200+o.k}" ${200+o.k===selectedIdx?'selected':''}>NOT Voice ${o.k+1} gate</option>`).join('') + '</optgroup>';
+  }
+  return h;
+}
+function refreshClockSelects(){
+  voices.forEach(v=>{
+    const el = document.querySelector(`.voice[data-id="${v.id}"]`); if(!el) return;
+    el.querySelector('.clockASel').innerHTML = clockOptionsHtml(v.clockA, v);
+    el.querySelector('.clockBSel').innerHTML = clockOptionsHtml(v.clockB, v);
+  });
 }
 function logicOptionsHtml(selected){
   return LOGIC_OPS.map(op=>`<option value="${op}" ${op===selected?'selected':''}>${op}</option>`).join('');
@@ -3999,6 +4214,7 @@ function renderVoice(v){
     </div>
     <div class="vtabs">
       <button class="vtab active" data-tab="pattern">PATTERN</button>
+      <button class="vtab" data-tab="pitch">PITCH</button>
       <button class="vtab" data-tab="sound">SOUND</button>
     </div>
     <div class="vpane pane-pattern">
@@ -4006,7 +4222,7 @@ function renderVoice(v){
       <div class="logic-config">
         <div class="field">
           <label>CLOCK A</label>
-          <select class="clockASel">${clockOptionsHtml(v.clockA)}</select>
+          <select class="clockASel">${clockOptionsHtml(v.clockA, v)}</select>
         </div>
         <div class="field">
           <label>GATE</label>
@@ -4014,7 +4230,7 @@ function renderVoice(v){
         </div>
         <div class="field">
           <label>CLOCK B</label>
-          <select class="clockBSel">${clockOptionsHtml(v.clockB)}</select>
+          <select class="clockBSel">${clockOptionsHtml(v.clockB, v)}</select>
         </div>
       </div>
       <div class="field">
@@ -4087,6 +4303,7 @@ function renderVoice(v){
       <div class="scopelabels"><span>NOTE</span><span>CLOCK A</span><span>CLOCK B</span><span class="logicLabel">${v.logic} →</span></div>
     </div>
     </div>
+    <div class="vpane pane-pitch hidden"></div>
     <div class="vpane pane-sound hidden">
     <div class="envpanel" hidden>
       <div class="envgraph"><canvas class="envCanvas" width="300" height="112"></canvas><span>Gate + release · <span class="envTotal"></span></span></div>
@@ -4100,6 +4317,7 @@ function renderVoice(v){
   voicesEl.appendChild(el);
   renderVoicePattern(v);
   buildSoundPane(v, el);
+  buildPitchPane(v, el);
   updateEngineTag(v, el);
   el.querySelectorAll('.vtab').forEach(b=>b.addEventListener('click',()=>switchVoiceTab(el,b.dataset.tab)));
   el.querySelector('.enginetag').addEventListener('click',()=>switchVoiceTab(el,'sound'));
@@ -4141,9 +4359,15 @@ function renderVoice(v){
     });
     el.querySelector('.removechip').addEventListener('click',()=>{
       if(voices.length<=1) return;
+      const gone = voices.indexOf(v);
       voices = voices.filter(vv=>vv.id!==v.id);
+      voices.forEach(o=>['clockA','clockB'].forEach(s=>{   // keep voice-gate references pointing at the right voice
+        const code = o[s];
+        if(code>=100){ const k = code%100, base = code-k; o[s] = k===gone ? 0 : (k>gone ? base+k-1 : code); }
+      }));
       disposeVoiceBus(v);
       el.remove();
+      refreshClockSelects();
     });
     const harmSlider = el.querySelector('.harmSlider');
     if(harmSlider){
@@ -4193,6 +4417,7 @@ document.getElementById('addVoiceBtn').addEventListener('click',()=>{
   const v = makeVoice();
   voices.push(v);
   renderVoice(v);
+  refreshClockSelects();
   if(audioCtx) ensureAudio();
 });
 
@@ -4201,7 +4426,7 @@ const PATTERN_STORAGE_KEY = 'booleanMelodyPatterns';
 let patterns = [];
 
 function serializeClocks(){
-  return clocks.map(c=>({mode:c.mode, divIdx:c.divIdx, steps:c.steps, pulses:c.pulses, offset:c.offset}));
+  return clocks.map(c=>({mode:c.mode, divIdx:c.divIdx, steps:c.steps, pulses:c.pulses, offset:c.offset, rule:c.rule, seed:c.seed, tap:c.tap, bits:c.bits, flip:c.flip, dens:c.dens, rnd:c.rnd, inst:c.inst}));
 }
 function serializeVoices(){
   return voices.map(v=>({
@@ -4209,7 +4434,7 @@ function serializeVoices(){
     clockA:v.clockA, clockB:v.clockB, logic:v.logic,
     lfoType:v.lfoType, lfoRate:v.lfoRate, synth:{gv:2, engine:v.synth.engine, preset:v.synth.preset, dirty:v.synth.dirty, params:Object.assign({},v.synth.params)}, octave:v.octave,
     patternLength:v.patternLength, predictability:v.predictability,
-    baseBeats:v.baseBeats, holdMode:v.holdMode, lenMode:v.lenMode, rhythmSH:v.rhythmSH, phraseArc:v.phraseArc, durS:v.durS.slice(), durR:v.durR.slice(),
+    pitchSet:v.pitchSet, sieve:Object.assign({},v.sieve), baseBeats:v.baseBeats, holdMode:v.holdMode, lenMode:v.lenMode, rhythmSH:v.rhythmSH, phraseArc:v.phraseArc, durS:v.durS.slice(), durR:v.durR.slice(),
     pattern: v.pattern.slice(), stepCount: v.stepCount,
     harmonicLink:v.harmonicLink, harmonicComplexity:v.harmonicComplexity,
     env: Object.assign({}, v.env),
@@ -4280,7 +4505,9 @@ function applyPatternState(state){
   state.clocks.forEach((sc,i)=>{
     const c = clocks[i];
     if(!c) return;
-    c.mode=sc.mode; c.divIdx=sc.divIdx; c.steps=sc.steps; c.pulses=sc.pulses; c.offset=sc.offset;
+    c.mode=['div','euclid','ca','lfsr','gong'].includes(sc.mode)?sc.mode:'div'; c.divIdx=sc.divIdx; c.steps=sc.steps; c.pulses=sc.pulses; c.offset=sc.offset;
+    c.rule = sc.rule!=null?sc.rule:30; c.seed = sc.seed!=null?sc.seed:37; c.tap = sc.tap!=null?sc.tap:5; c.bits = sc.bits!=null?sc.bits:8;
+    c.flip = sc.flip!=null?sc.flip:12; c.dens = sc.dens!=null?sc.dens:50; c.rnd = sc.rnd!=null?sc.rnd:c.rnd; c.inst = sc.inst||'gong';
     recomputeClockPattern(c);
     if(c.syncUI) c.syncUI();
   });
@@ -4293,7 +4520,7 @@ function applyPatternState(state){
     clockA: sv.clockA, clockB: sv.clockB, logic: sv.logic,
     lfoType: sv.lfoType, lfoRate: sv.lfoRate, synth: restoreSynth(sv), bus:null, prevNote:null, _snap:null, octave: sv.octave,
     patternLength: sv.patternLength, predictability: sv.predictability,
-    baseBeats: [0.125,0.25,0.5,1,2,4].includes(sv.baseBeats)?sv.baseBeats:0.5, holdMode: sv.holdMode==='mask'?'mask':'ring', holdUntil:0, lenMode: ['fixed','gate','next'].includes(sv.lenMode)?sv.lenMode:'fixed', rhythmSH: Math.max(-100,Math.min(100,sv.rhythmSH||0)), phraseArc: sv.phraseArc||0,
+    baseBeats: [0.125,0.25,0.5,1,2,4].includes(sv.baseBeats)?sv.baseBeats:0.5, pitchSet: sv.pitchSet==='sieve'?'sieve':'scale', sieve: restoreSieve(sv.sieve), holdMode: sv.holdMode==='mask'?'mask':'ring', holdUntil:0, lenMode: ['fixed','gate','next'].includes(sv.lenMode)?sv.lenMode:'fixed', rhythmSH: Math.max(-100,Math.min(100,sv.rhythmSH||0)), phraseArc: sv.phraseArc||0,
     durS: Array.isArray(sv.durS)?sv.durS.slice():new Array(sv.patternLength).fill(null), durR: Array.isArray(sv.durR)?sv.durR.slice():new Array(sv.patternLength).fill(null),
     pattern: sv.pattern.slice(), stepCount: sv.stepCount||0,
     seed: Math.random()*1000, noteHistory:[], lastNote:null,
