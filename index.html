@@ -2373,7 +2373,7 @@ const COMMON_SECTIONS=[{
   controls:[
     R_('level','LEVEL',0,1,0.8,0.01,pctFmt),
     R_('pan','PAN',-1,1,0,0.01,v=>v===0?'C':(v<0?'L'+Math.round(-v*100):'R'+Math.round(v*100))),
-    R_('gate','NOTE LENGTH',0.05,4,0.4,0.01,v=>v.toFixed(2)+' beat'),
+    R_('gate','GATE',0.1,8,0.8,0.01,v=>Math.round(v*100)+'% of note'),
     S_('chorus','CHORUS',[[0,'Off'],[1,'I'],[2,'II'],[3,'I+II']],0),
     R_('delayMix','DELAY MIX',0,1,0,0.01,pctFmt),
     L_('delayTime','DELAY TIME',0.03,1.5,0.3,'s'),
@@ -2586,13 +2586,13 @@ ENGINES.moog={
   ],
   presets:{
     'Bass':{o1range:-1,o1wave:'sawtooth',o1level:0.9,o2range:-1,o2wave:'sawtooth',o2level:0.7,o2tune:4,o3range:-2,o3wave:'square',o3level:0.6,
-      drive:0.35,cutoff:180,res:0.35,contour:0.6,keytrack:0.33,feA:0.002,feD:0.22,feS:0,aeA:0.003,aeD:0.35,aeS:0.7,glide:0.05,gate:0.5},
+      drive:0.35,cutoff:180,res:0.35,contour:0.6,keytrack:0.33,feA:0.002,feD:0.22,feS:0,aeA:0.003,aeD:0.35,aeS:0.7,glide:0.05,gate:1},
     'Lead':{o1range:0,o1wave:'sawtooth',o1level:0.8,o2range:0,o2wave:'sawtooth',o2level:0.8,o2tune:6,o3range:0,o3wave:'square',o3level:0.25,o3tune:-12,
-      drive:0.3,cutoff:2400,res:0.3,contour:0.35,keytrack:1,feA:0.01,feD:0.5,feS:0.5,aeA:0.01,aeD:0.3,aeS:0.8,glide:0.12,lfoRate:5.5,lfoPitch:0.12,gate:0.6},
+      drive:0.3,cutoff:2400,res:0.3,contour:0.35,keytrack:1,feA:0.01,feD:0.5,feS:0.5,aeA:0.01,aeD:0.3,aeS:0.8,glide:0.12,lfoRate:5.5,lfoPitch:0.12,gate:1.2},
     'Brass':{o1range:0,o1wave:'sawtooth',o1level:0.8,o2range:0,o2wave:'sawtooth',o2level:0.8,o2tune:5,o3range:-1,o3wave:'sawtooth',o3level:0.6,
-      drive:0.25,cutoff:500,res:0.15,contour:0.6,keytrack:0.67,feA:0.09,feD:0.35,feS:0.6,aeA:0.06,aeD:0.3,aeS:0.85,gate:0.8},
+      drive:0.25,cutoff:500,res:0.15,contour:0.6,keytrack:0.67,feA:0.09,feD:0.35,feS:0.6,aeA:0.06,aeD:0.3,aeS:0.85,gate:1.6},
     'Pluck':{o1range:0,o1wave:'square',o1level:0.8,o2range:0,o2wave:'sawtooth',o2level:0.6,o2tune:3,o3level:0,
-      drive:0.15,cutoff:400,res:0.4,contour:0.7,keytrack:0.67,feA:0.001,feD:0.14,feS:0,aeA:0.002,aeD:0.2,aeS:0,gate:0.3},
+      drive:0.15,cutoff:400,res:0.4,contour:0.7,keytrack:0.67,feA:0.001,feD:0.14,feS:0,aeA:0.002,aeD:0.2,aeS:0,gate:0.6},
   },
   play(ctx,dest,p,midi,t,dur,ev){
     const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
@@ -2670,12 +2670,12 @@ ENGINES.juno={
   ],
   presets:{
     'Poly Lead':{sawLevel:0.7,pulseLevel:0.3,subLevel:0.2,cutoff:3200,res:0.25,envAmt:0.3,feD:0.5,feS:0.4,aeA:0.005,aeS:0.9,aeR:0.25,
-      lfoRate:5.5,lfoDelay:0.5,lfoPitch:0.15,chorus:1,gate:0.6},
+      lfoRate:5.5,lfoDelay:0.5,lfoPitch:0.15,chorus:1,gate:1.2},
     'Warm Pad':{sawLevel:0.6,pulseLevel:0.5,pwMode:'lfo',pwDepth:0.6,lfoRate:0.6,cutoff:1400,res:0.1,envAmt:0.2,
-      feA:0.8,feD:1.5,feS:0.6,feR:1.2,aeA:0.6,aeD:1,aeS:0.85,aeR:1.5,chorus:2,gate:1.8},
-    'Sub Bass':{sawLevel:0.3,pulseLevel:0,subLevel:0.9,cutoff:600,res:0.15,envAmt:0.25,feD:0.25,feS:0.3,keyFollow:0.3,aeA:0.005,aeS:0.9,aeR:0.12,chorus:0,gate:0.5},
-    'Brass Stab':{sawLevel:0.8,pulseLevel:0.2,subLevel:0.3,cutoff:900,res:0.2,envAmt:0.6,feA:0.02,feD:0.3,feS:0.3,aeA:0.01,aeS:0.7,aeR:0.15,chorus:1,gate:0.3},
-    'Pluck':{sawLevel:0.5,pulseLevel:0.6,pw:0.35,subLevel:0.2,cutoff:700,res:0.35,envAmt:0.7,feA:0.002,feD:0.18,feS:0,aeA:0.002,aeD:0.25,aeS:0,aeR:0.1,chorus:1,gate:0.25},
+      feA:0.8,feD:1.5,feS:0.6,feR:1.2,aeA:0.6,aeD:1,aeS:0.85,aeR:1.5,chorus:2,gate:3.6},
+    'Sub Bass':{sawLevel:0.3,pulseLevel:0,subLevel:0.9,cutoff:600,res:0.15,envAmt:0.25,feD:0.25,feS:0.3,keyFollow:0.3,aeA:0.005,aeS:0.9,aeR:0.12,chorus:0,gate:1},
+    'Brass Stab':{sawLevel:0.8,pulseLevel:0.2,subLevel:0.3,cutoff:900,res:0.2,envAmt:0.6,feA:0.02,feD:0.3,feS:0.3,aeA:0.01,aeS:0.7,aeR:0.15,chorus:1,gate:0.6},
+    'Pluck':{sawLevel:0.5,pulseLevel:0.6,pw:0.35,subLevel:0.2,cutoff:700,res:0.35,envAmt:0.7,feA:0.002,feD:0.18,feS:0,aeA:0.002,aeD:0.25,aeS:0,aeR:0.1,chorus:1,gate:0.5},
   },
   play(ctx,dest,p,midi,t,dur,ev){
     const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi), f=f0*Math.pow(2,p.range);
@@ -2760,14 +2760,14 @@ ENGINES.prophet={
     {title:'AMP ENVELOPE',controls:ENV4('ae',0.01,0.3,0.8,0.3)},
   ],
   presets:{
-    'Brass':{aSaw:true,bSaw:true,bFine:8,cutoff:700,envAmt:0.7,feA:0.1,feD:0.5,feS:0.5,aeA:0.06,aeS:0.85,aeR:0.2,gate:0.8},
+    'Brass':{aSaw:true,bSaw:true,bFine:8,cutoff:700,envAmt:0.7,feA:0.1,feD:0.5,feS:0.5,aeA:0.06,aeS:0.85,aeR:0.2,gate:1.6},
     'Pulse Lead':{aSaw:false,aPulse:true,aPw:0.35,bSaw:false,bPulse:true,bPw:0.65,bFine:6,cutoff:2600,res:0.3,envAmt:0.4,
-      lfoAmt:0.5,lfoRate:5,lfoToFreq:false,lfoToPw:true,gate:0.6},
+      lfoAmt:0.5,lfoRate:5,lfoToFreq:false,lfoToPw:true,gate:1.2},
     'Soft Pad':{aSaw:true,bSaw:true,bFine:12,aLevel:0.6,bLevel:0.6,cutoff:1200,res:0.1,envAmt:0.3,feA:0.6,feD:1.5,feS:0.6,feR:1.2,
-      aeA:0.6,aeD:1,aeS:0.85,aeR:1.4,chorus:2,gate:1.8},
+      aeA:0.6,aeD:1,aeS:0.85,aeR:1.4,chorus:2,gate:3.6},
     'Poly-Mod Bell':{aSaw:false,aPulse:true,aPw:0.5,bSaw:false,bTri:true,bSemi:12,bFine:0,aLevel:0.8,bLevel:0.2,
-      pmBAmt:0.25,pmToFreqA:true,pmToFilt:true,pmEnvAmt:0.35,cutoff:3500,res:0.2,envAmt:0.2,feA:0.002,feD:0.8,feS:0,aeA:0.002,aeD:1.2,aeS:0,aeR:0.6,gate:0.35},
-    'Pluck Bass':{aSaw:true,aOct:-1,bSaw:true,bSemi:0,bFine:5,cutoff:260,res:0.35,envAmt:0.7,feA:0.002,feD:0.2,feS:0,aeA:0.003,aeD:0.3,aeS:0.5,aeR:0.12,gate:0.4},
+      pmBAmt:0.25,pmToFreqA:true,pmToFilt:true,pmEnvAmt:0.35,cutoff:3500,res:0.2,envAmt:0.2,feA:0.002,feD:0.8,feS:0,aeA:0.002,aeD:1.2,aeS:0,aeR:0.6,gate:0.7},
+    'Pluck Bass':{aSaw:true,aOct:-1,bSaw:true,bSemi:0,bFine:5,cutoff:260,res:0.35,envAmt:0.7,feA:0.002,feD:0.2,feS:0,aeA:0.003,aeD:0.3,aeS:0.5,aeR:0.12,gate:0.8},
   },
   play(ctx,dest,p,midi,t,dur,ev){
     const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
@@ -2870,23 +2870,23 @@ ENGINES.dx7={
     'E.Piano':Object.assign({alg:5,fb:0},dxOpsPreset([
       [1,0,0,99,0.001,1.8,0,0.4],[14,0,0,58,0.001,0.12,0,0.1],
       [1,0,3,92,0.001,2.4,0,0.5],[1,0,0,72,0.001,1.2,0,0.3],
-      DX_OFF,DX_OFF]),{gate:0.6,chorus:1}),
+      DX_OFF,DX_OFF]),{gate:1.2,chorus:1}),
     'Bell':Object.assign({alg:5,fb:0},dxOpsPreset([
       [1,0,0,99,0.001,4,0,2.5],[3,17,0,78,0.001,2.2,0,1.2],
       [4,0,2,70,0.001,3,0,2],[5,0,0,52,0.001,1.4,0,0.8],
-      DX_OFF,DX_OFF]),{gate:0.3,reverbMix:0.3}),
+      DX_OFF,DX_OFF]),{gate:0.6,reverbMix:0.3}),
     'FM Bass':Object.assign({alg:5,fb:3},dxOpsPreset([
       [1,0,0,99,0.001,0.4,0.85,0.1],[1,0,0,76,0.001,0.16,0.15,0.1],
       [0.5,0,0,85,0.001,0.4,0.85,0.1],[1,0,0,60,0.001,0.12,0.1,0.1],
-      DX_OFF,[1,0,0,0,0.001,0.3,0,0.2]]),{gate:0.5}),
+      DX_OFF,[1,0,0,0,0.001,0.3,0,0.2]]),{gate:1}),
     'Glass Pad':Object.assign({alg:5,fb:0},dxOpsPreset([
       [1,0,0,99,1.2,1,0.8,1.6],[1,0,0,34,1.5,1.2,0.7,1.6],
       [1,0,5,92,1.4,1,0.8,1.6],[2,0,0,30,1.6,1.2,0.6,1.6],
-      [1,0,-5,92,1.3,1,0.8,1.6],[3,0,0,24,1.8,1.2,0.5,1.6]]),{gate:2,chorus:2,reverbMix:0.3,reverbSize:3.2}),
+      [1,0,-5,92,1.3,1,0.8,1.6],[3,0,0,24,1.8,1.2,0.5,1.6]]),{gate:4,chorus:2,reverbMix:0.3,reverbSize:3.2}),
     'Brass':Object.assign({alg:5,fb:4},dxOpsPreset([
       [1,0,0,99,0.05,0.3,0.8,0.15],[1,0,0,82,0.07,0.35,0.55,0.15],
       [1,0,3,92,0.05,0.3,0.8,0.15],[1,0,0,76,0.08,0.35,0.5,0.15],
-      DX_OFF,DX_OFF]),{gate:0.8}),
+      DX_OFF,DX_OFF]),{gate:1.6}),
   },
   play(ctx,dest,p,midi,t,dur,ev){
     const S=[], f0=mtof(midi), alg=DX_ALGS[p.alg]||DX_ALGS[5];
@@ -2942,9 +2942,9 @@ ENGINES.strings={
     ]},
   ],
   presets:{
-    'Ensemble':{gate:1.4},
-    'Slow Swell':{aeA:1.6,aeR:1.8,bright:2400,gate:2.5,reverbMix:0.3,reverbSize:3.2},
-    'Staccato':{aeA:0.02,aeR:0.2,bright:5000,s16:0.2,s8:0.9,s4:0.7,gate:0.25},
+    'Ensemble':{gate:2.8},
+    'Slow Swell':{aeA:1.6,aeR:1.8,bright:2400,gate:5,reverbMix:0.3,reverbSize:3.2},
+    'Staccato':{aeA:0.02,aeR:0.2,bright:5000,s16:0.2,s8:0.9,s4:0.7,gate:0.5},
   },
   play(ctx,dest,p,midi,t,dur,ev){
     const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
@@ -3064,12 +3064,12 @@ ENGINES.strum={
     ]},
   ],
   presets:{
-    'Nylon':{exc:'soft',excBright:0.45,damp:0.55,decay:1.8,tone:3500,body:0.45,gate:0.5},
-    'Steel Strum':{exc:'noise',chord:'open6',strum:70,decay:3.2,damp:0.25,excBright:0.9,stereo:0.7,body:0.3,reverbMix:0.15,gate:0.8},
-    'Harp':{exc:'saw',decay:4.5,damp:0.2,keyDecay:0.3,pickPos:0.3,chord:'octave',strum:90,stereo:0.8,reverbMix:0.3,reverbSize:3.2,gate:1},
-    'Muted Pick':{exc:'click',mute:0.75,decay:0.9,tone:2500,body:0.5,gate:0.2,stopOnRelease:true,relTime:0.05},
-    'Power Chord':{exc:'noise',chord:'power',strum:25,decay:2.2,damp:0.45,excBright:0.85,gate:0.7},
-    'Minor Pad Strum':{exc:'soft',chord:'min7',strum:130,decay:5,damp:0.3,stereo:0.9,chorus:2,reverbMix:0.35,reverbSize:3.2,gate:1.5},
+    'Nylon':{exc:'soft',excBright:0.45,damp:0.55,decay:1.8,tone:3500,body:0.45,gate:1},
+    'Steel Strum':{exc:'noise',chord:'open6',strum:70,decay:3.2,damp:0.25,excBright:0.9,stereo:0.7,body:0.3,reverbMix:0.15,gate:1.6},
+    'Harp':{exc:'saw',decay:4.5,damp:0.2,keyDecay:0.3,pickPos:0.3,chord:'octave',strum:90,stereo:0.8,reverbMix:0.3,reverbSize:3.2,gate:2},
+    'Muted Pick':{exc:'click',mute:0.75,decay:0.9,tone:2500,body:0.5,gate:0.4,stopOnRelease:true,relTime:0.05},
+    'Power Chord':{exc:'noise',chord:'power',strum:25,decay:2.2,damp:0.45,excBright:0.85,gate:1.4},
+    'Minor Pad Strum':{exc:'soft',chord:'min7',strum:130,decay:5,damp:0.3,stereo:0.9,chorus:2,reverbMix:0.35,reverbSize:3.2,gate:3},
   },
   play(ctx,dest,p,midi,t,dur,ev){
     const seed=((ev&&ev.seed!=null?ev.seed:0.5)%1+1)%1;
@@ -3152,9 +3152,9 @@ function getSnap(v){
   return v._snap;
 }
 /* how long the note is held, in seconds (Init Pluck without ENV is a fixed short pluck) */
-function noteDur(snap){
-  if(snap.engine==='init') return snap.env ? snap.env.gate/1000 : 0.3;
-  return snap.p.gate*60/bpm;
+function noteDur(v, snap){
+  // the voice's BASE NOTE (in beats) x the engine's GATE (legato factor; Init Pluck uses a fixed 80%)
+  return v.baseBeats*60/bpm*(snap.engine==='init' ? 0.8 : snap.p.gate);
 }
 function getLiveBus(v){
   if(!v.bus) v.bus = createBus(audioCtx, masterGain, v.synth.params);
@@ -3298,7 +3298,7 @@ function auditionVoice(v){
   const root = 60 + rootIndex + v.octave*12;
   const bus = getLiveBus(v);
   const snap = getSnap(v);
-  playEngineNote(audioCtx, bus.input, snap.engine, snap.p, root, audioCtx.currentTime+0.02, noteDur(snap), {from:null, seed:0.5, env:snap.env});
+  playEngineNote(audioCtx, bus.input, snap.engine, snap.p, root, audioCtx.currentTime+0.02, noteDur(v, snap), {from:null, seed:0.5, env:snap.env});
 }
 
 function switchVoiceTab(el, which){
@@ -3321,8 +3321,10 @@ function restoreSynth(sv){
     return {engine:'init', preset:'', dirty:false, params};
   }
   const e = sv.synth.engine;
+  const params = sanitizeParams(e, sv.synth.params);
+  if(sv.synth.gv!==2 && typeof sv.synth.params.gate==='number') params.gate = Math.min(8, sv.synth.params.gate*2);   // older saves: gate was in beats
   return {engine:e, preset:(sv.synth.preset && ENGINES[e].presets[sv.synth.preset]) ? sv.synth.preset : '',
-          dirty:!!sv.synth.dirty, params:sanitizeParams(e, sv.synth.params)};
+          dirty:!!sv.synth.dirty, params};
 }
 
 /* ---------- voice model ---------- */
@@ -3343,8 +3345,8 @@ function makeVoice(){
     octave:0,
     patternLength:8,
     predictability:35,
-    lenMode:'fixed', rhythmVar:0, phraseArc:0,
-    durQ:new Array(8).fill(null), durG:new Array(8).fill(null),
+    baseBeats:0.5, holdMode:'ring', holdUntil:0, lenMode:'fixed', rhythmSH:0, phraseArc:0,
+    durS:new Array(8).fill(null), durR:new Array(8).fill(null),
     pattern:new Array(8).fill(null),
     stepCount:0,
     seed: Math.random()*1000,
@@ -3361,8 +3363,8 @@ function resizePattern(v, newLen){
   for(let i=0;i<Math.min(newLen,v.pattern.length);i++) np[i]=v.pattern[i];
   v.pattern = np;
   const nq = new Array(newLen).fill(null), ng = new Array(newLen).fill(null);
-  for(let i=0;i<Math.min(newLen,(v.durQ||[]).length);i++){ nq[i]=v.durQ[i]; ng[i]=v.durG[i]; }
-  v.durQ = nq; v.durG = ng;
+  for(let i=0;i<Math.min(newLen,(v.durS||[]).length);i++){ nq[i]=v.durS[i]; ng[i]=v.durR[i]; }
+  v.durS = nq; v.durR = ng;
   v.patternLength = newLen;
 }
 
@@ -3559,10 +3561,23 @@ function processVoiceWindow(v, winStart, winEnd){
    LENGTH mode  Fixed      the voice's NOTE LENGTH (as before)
                 Gate       held while the combined A·op·B gate stays high
                 Until next held until the voice's next trigger (legato; rests become sustain)
-   RHYTHM VARIETY  chance per step of a longer/shorter note (a stored per-step value, locked or
-                   resampled by the same PREDICTABILITY knob as the pitch)
+   RHYTHM S&H     bipolar pot, see shMult()
    PHRASE ARC      stretches the first and last step of the pattern, and shortens the one before the end */
-const LEN_DEV = [0.5,0.5,1.5,2,2,3,4];
+/* RHYTHM S&H: a bipolar pot. Noon = always the base note. Turned right it favors longer notes, left shorter;
+   the further out, the more steps deviate (probability = how far the pot is turned) and the wider the ladder of
+   values it may reach. The held LFO sample s for each step (the LFO sets the depth) picks how far up the ladder
+   a deviating step goes. s and the dice roll are stored per step, so PREDICTABILITY locks or re-rolls them. */
+const SH_UP   = [1.5, 2, 3, 4, 6, 8];       // dotted 8th, quarter, dotted quarter, half, dotted half, whole (at an 8th base)
+const SH_DOWN = [0.75, 0.5, 0.375, 0.25, 0.125]; // dotted 16th, 16th, ...
+function shMult(v, step){
+  const x = v.rhythmSH/100, a = Math.abs(x);
+  if(a < 0.01) return 1;
+  const s = v.durS[step], r = v.durR[step];
+  if(s==null || r==null || r >= a) return 1;
+  const set = x>0 ? SH_UP : SH_DOWN;
+  const n = Math.max(1, Math.ceil(a*set.length));
+  return set[Math.min(n-1, Math.floor(s*n))];
+}
 function scanGate(v, t, stA, stB){
   const cA = clocks[v.clockA], cB = clocks[v.clockB];
   const horizon = t + 16*60/bpm;
@@ -3578,16 +3593,16 @@ function scanGate(v, t, stA, stB){
   }
   return {fall, rise, horizon};
 }
+function fmtSH(n){ return n===0 ? 'base' : (n>0 ? 'longer ' : 'shorter ')+Math.abs(n)+'%'; }
 function computeDur(v, snap, t, step, stA, stB){
-  let base = noteDur(snap);
-  const varOn = v.rhythmVar>0, arcOn = v.phraseArc>0;
+  let base = noteDur(v, snap);
+  const varOn = Math.abs(v.rhythmSH)>0, arcOn = v.phraseArc>0;
   if(v.lenMode==='fixed' && !varOn && !arcOn) return base;
   const sc = scanGate(v,t,stA,stB);
-  const gap = sc.rise!=null ? Math.max(0.03, sc.rise - t - 0.01) : Infinity;
   if(v.lenMode==='gate') base = (sc.fall!=null ? sc.fall : sc.horizon) - t;
   else if(v.lenMode==='next') base = (sc.rise!=null ? sc.rise - 0.01 : sc.horizon) - t;
   let m = 1;
-  if(varOn && v.durG[step]!=null && v.durG[step] < v.rhythmVar/100) m *= LEN_DEV[Math.min(LEN_DEV.length-1, Math.floor((v.durQ[step]||0)*LEN_DEV.length))];
+  if(varOn) m *= shMult(v, step);
   if(arcOn){
     const a = v.phraseArc/100, last = v.patternLength-1;
     if(step===last) m *= 1+2.5*a;
@@ -3595,13 +3610,16 @@ function computeDur(v, snap, t, step, stA, stB){
     else if(step===last-1 && v.patternLength>=4) m *= 1-0.4*a;
   }
   let d = base*m;
-  if(m>1) d = Math.min(d, Math.max(base, gap));   // a stretched note never runs over the next trigger
   return Math.max(0.03, Math.min(d, 16*60/bpm));
 }
 
 function triggerVoice(v, time, stA, stB){
   jam.trace(time, v.id);
   const step = v.stepCount % v.patternLength;
+  if(v.holdMode==='mask' && time < v.holdUntil){   // MASK: a held note covers this trigger, which becomes part of it
+    v.stepCount++; v.lastStep = step;
+    return;
+  }
   let baseNote, redrew = false;
   if(v.pattern[step]==null){
     baseNote = drawNote(v,time);
@@ -3615,12 +3633,16 @@ function triggerVoice(v, time, stA, stB){
       baseNote = v.pattern[step];
     }
   }
-  if(redrew || v.durQ[step]==null){ v.durQ[step]=Math.random(); v.durG[step]=Math.random(); }
+  if(redrew || v.durS[step]==null){
+    v.durS[step] = lfoValue(v, time + 0.37/Math.max(0.05, v.lfoRate));   // S&H of the LFO, in parallel with the pitch S&H
+    v.durR[step] = Math.random();
+  }
   const note = baseNote + v.octave*12; // live octave transpose, independent of pattern lock
   const snap = getSnap(v);
   const seed = (v.seed*0.61803 + v.stepCount*0.75488) % 1;
   const dur = computeDur(v, snap, time, step, stA, stB);
   playNote(v, note, time, snap, seed, dur);
+  v.holdUntil = time + dur - 0.01;
   const from = v.prevNote;
   v.prevNote = note;
   v.stepCount++;
@@ -3815,7 +3837,7 @@ function drawEnvGraph(v, el){
   const r = cv.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio||1);
   if(r.width){ cv.width = Math.round(r.width*dpr); cv.height = Math.round(r.height*dpr); }
   const W = cv.width, H = cv.height, g = cv.getContext('2d');
-  const e = v.env, gate = e.gate/1000, R = e.r/1000, total = gate + R;
+  const e = Object.assign({}, v.env, {gate: Math.round(noteDur(v, {engine:'init'})*1000)}), gate = e.gate/1000, R = e.r/1000, total = gate + R;   // gate = the voice's base note
   g.clearRect(0,0,W,H);
   const cs = getComputedStyle(el);
   g.strokeStyle = cs.getPropertyValue('--line-dim').trim() || '#555'; g.lineWidth = 1*dpr;
@@ -3905,16 +3927,30 @@ function renderVoice(v){
         <div class="predictscale"><span>STATIC</span><span>EVOLVING</span><span>RANDOM</span></div>
       </div>
       <div class="field">
-        <label>NOTE LENGTH</label>
-        <select class="lenModeSel" title="How long each note is held">
-          <option value="fixed" ${v.lenMode==='fixed'?'selected':''}>Fixed</option>
+        <label>BASE NOTE</label>
+        <select class="baseSel" title="The standard note length for this voice">
+          ${[[0.125,'1/32'],[0.25,'1/16'],[0.5,'1/8'],[1,'1/4'],[2,'1/2'],[4,'1 bar']].map(o=>`<option value="${o[0]}" ${o[0]===v.baseBeats?'selected':''}>${o[1]}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>LONG NOTES</label>
+        <select class="holdSel" title="What happens to triggers that land while a longer note is still sounding">
+          <option value="ring" ${v.holdMode==='ring'?'selected':''}>Ring over</option>
+          <option value="mask" ${v.holdMode==='mask'?'selected':''}>Mask triggers</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>LENGTH FROM</label>
+        <select class="lenModeSel" title="Where the base length comes from">
+          <option value="fixed" ${v.lenMode==='fixed'?'selected':''}>Base note</option>
           <option value="gate" ${v.lenMode==='gate'?'selected':''}>Follow gate</option>
           <option value="next" ${v.lenMode==='next'?'selected':''}>Until next</option>
         </select>
       </div>
-      <div class="sliderfield">
-        <label>RHYTHM VARIETY — <span class="sv varVal">${v.rhythmVar}</span></label>
-        <input type="range" class="varSlider" min="0" max="100" value="${v.rhythmVar}">
+      <div class="sliderfield" style="grid-column:span 2;">
+        <label>RHYTHM S&amp;H — <span class="sv varVal">${fmtSH(v.rhythmSH)}</span></label>
+        <input type="range" class="varSlider" min="-100" max="100" value="${v.rhythmSH}">
+        <div class="predictscale"><span>SHORTER</span><span>BASE NOTE</span><span>LONGER</span></div>
       </div>
       <div class="sliderfield">
         <label>PHRASE ARC — <span class="sv arcVal">${v.phraseArc}</span></label>
@@ -3939,7 +3975,6 @@ function renderVoice(v){
       ${envSliderHtml('d','DECAY',v.env.d,'ms')}
       ${envSliderHtml('s','SUSTAIN',v.env.s,'%')}
       ${envSliderHtml('r','RELEASE',v.env.r,'ms')}
-      ${envSliderHtml('gate','GATE',v.env.gate,'ms')}
     </div>
     </div>
   `;
@@ -4018,10 +4053,12 @@ function renderVoice(v){
     el.querySelector('.lenVal').textContent = v.patternLength;
     renderVoicePattern(v);
   });
+  el.querySelector('.baseSel').addEventListener('change',e=>{ v.baseBeats=parseFloat(e.target.value); if(el._syncEnv) el._syncEnv(); });
+  el.querySelector('.holdSel').addEventListener('change',e=>{ v.holdMode=e.target.value; v.holdUntil=0; });
   el.querySelector('.lenModeSel').addEventListener('change',e=>{ v.lenMode=e.target.value; });
   el.querySelector('.varSlider').addEventListener('input',e=>{
-    v.rhythmVar = parseInt(e.target.value,10);
-    el.querySelector('.varVal').textContent = v.rhythmVar;
+    v.rhythmSH = parseInt(e.target.value,10);
+    el.querySelector('.varVal').textContent = fmtSH(v.rhythmSH);
   });
   el.querySelector('.arcSlider').addEventListener('input',e=>{
     v.phraseArc = parseInt(e.target.value,10);
@@ -4051,9 +4088,9 @@ function serializeVoices(){
   return voices.map(v=>({
     name:v.name, color:v.color, muted:v.muted,
     clockA:v.clockA, clockB:v.clockB, logic:v.logic,
-    lfoType:v.lfoType, lfoRate:v.lfoRate, synth:{engine:v.synth.engine, preset:v.synth.preset, dirty:v.synth.dirty, params:Object.assign({},v.synth.params)}, octave:v.octave,
+    lfoType:v.lfoType, lfoRate:v.lfoRate, synth:{gv:2, engine:v.synth.engine, preset:v.synth.preset, dirty:v.synth.dirty, params:Object.assign({},v.synth.params)}, octave:v.octave,
     patternLength:v.patternLength, predictability:v.predictability,
-    lenMode:v.lenMode, rhythmVar:v.rhythmVar, phraseArc:v.phraseArc, durQ:v.durQ.slice(), durG:v.durG.slice(),
+    baseBeats:v.baseBeats, holdMode:v.holdMode, lenMode:v.lenMode, rhythmSH:v.rhythmSH, phraseArc:v.phraseArc, durS:v.durS.slice(), durR:v.durR.slice(),
     pattern: v.pattern.slice(), stepCount: v.stepCount,
     harmonicLink:v.harmonicLink, harmonicComplexity:v.harmonicComplexity,
     env: Object.assign({}, v.env),
@@ -4137,8 +4174,8 @@ function applyPatternState(state){
     clockA: sv.clockA, clockB: sv.clockB, logic: sv.logic,
     lfoType: sv.lfoType, lfoRate: sv.lfoRate, synth: restoreSynth(sv), bus:null, prevNote:null, _snap:null, octave: sv.octave,
     patternLength: sv.patternLength, predictability: sv.predictability,
-    lenMode: ['fixed','gate','next'].includes(sv.lenMode)?sv.lenMode:'fixed', rhythmVar: sv.rhythmVar||0, phraseArc: sv.phraseArc||0,
-    durQ: Array.isArray(sv.durQ)?sv.durQ.slice():new Array(sv.patternLength).fill(null), durG: Array.isArray(sv.durG)?sv.durG.slice():new Array(sv.patternLength).fill(null),
+    baseBeats: [0.125,0.25,0.5,1,2,4].includes(sv.baseBeats)?sv.baseBeats:0.5, holdMode: sv.holdMode==='mask'?'mask':'ring', holdUntil:0, lenMode: ['fixed','gate','next'].includes(sv.lenMode)?sv.lenMode:'fixed', rhythmSH: Math.max(-100,Math.min(100,sv.rhythmSH||0)), phraseArc: sv.phraseArc||0,
+    durS: Array.isArray(sv.durS)?sv.durS.slice():new Array(sv.patternLength).fill(null), durR: Array.isArray(sv.durR)?sv.durR.slice():new Array(sv.patternLength).fill(null),
     pattern: sv.pattern.slice(), stepCount: sv.stepCount||0,
     seed: Math.random()*1000, noteHistory:[], lastNote:null,
     harmonicLink: sv.harmonicLink, harmonicComplexity: sv.harmonicComplexity,
