@@ -3267,8 +3267,435 @@ ENGINES.strum={
   }
 };
 
+/* ================== CLASSIC SYNTHS ==================
+   Stylized models built from the same parts as the engines above. They aim at the character
+   of each instrument (signal path, controls, typical sounds), not a component-level emulation. */
+const WAVE_OPTS=[['sawtooth','Saw'],['square','Square'],['pulse','Pulse'],['triangle','Triangle'],['sine','Sine']];
+function bq(ctx,type,hz,q){ const b=ctx.createBiquadFilter(); b.type=type; b.frequency.value=clampN(hz,20,ctx.sampleRate*0.45); b.Q.value=q; return b; }
+
+/* ---- CS-80: two layers, each with its own HPF/LPF and envelope; vibrato, brass scoop ---- */
+function cs80Layer(L,d){
+  const k='l'+L;
+  return {title:'LAYER '+(L===1?'I':'II'),controls:[
+    R_(k+'level','LEVEL',0,1,d.level,0.01,pctFmt),
+    S_(k+'wave','WAVE',WAVE_OPTS,d.wave),
+    S_(k+'range','RANGE',OCT_OPTS.slice(0,4),d.range),
+    L_(k+'hp','HIGH-PASS',20,4000,d.hp,'Hz'),
+    L_(k+'cut','LOW-PASS',60,16000,d.cut,'Hz'),
+    R_(k+'res','RESONANCE',0,1,d.res,0.01,pctFmt),
+    R_(k+'bril','BRILLIANCE (ENV)',0,1,d.bril,0.01,pctFmt),
+    L_(k+'A','ATTACK',0.001,8,d.A,'s'),L_(k+'D','DECAY',0.005,8,d.D,'s'),
+    R_(k+'S','SUSTAIN',0,1,d.S,0.01,pctFmt),L_(k+'R','RELEASE',0.005,8,d.R,'s'),
+  ]};
+}
+ENGINES.cs80={
+  label:'CS-80 (Yamaha-style)',
+  trim:1.2,
+  desc:'Two layers, each with its own oscillators, high-pass, low-pass, brilliance envelope and amp envelope, plus a ribbon-style pitch scoop and delayed vibrato. Add chorus for width.',
+  over:{chorus:1},
+  sections:[
+    cs80Layer(1,{level:0.8,wave:'sawtooth',range:0,hp:120,cut:1400,res:0.15,bril:0.5,A:0.08,D:0.6,S:0.75,R:0.35}),
+    cs80Layer(2,{level:0.7,wave:'pulse',range:0,hp:200,cut:2400,res:0.2,bril:0.4,A:0.12,D:0.6,S:0.7,R:0.4}),
+    {title:'PERFORMANCE',controls:[
+      R_('detune','DETUNE',0,40,14,0.5,v=>v+' ct'),
+      R_('pw','PULSE WIDTH',0.1,0.9,0.4,0.01,pctFmt),
+      R_('scoop','RIBBON SCOOP',0,4,0,0.05,v=>v.toFixed(2)+' st'),
+      L_('scoopTime','SCOOP TIME',0.02,1,0.12,'s'),
+      L_('vibRate','VIBRATO RATE',0.5,12,5.2,'Hz'),
+      R_('vibDepth','VIBRATO DEPTH',0,1,0.1,0.01,pctFmt),
+      L_('vibDelay','VIBRATO DELAY',0.01,3,0.5,'s'),
+    ]},
+  ],
+  presets:{
+    'Vangelis Brass':{l1level:0.9,l1wave:'sawtooth',l1hp:100,l1cut:700,l1res:0.2,l1bril:0.7,l1A:0.1,l1D:0.5,l1S:0.8,l1R:0.4,
+      l2level:0.7,l2wave:'sawtooth',l2hp:160,l2cut:1100,l2res:0.25,l2bril:0.7,l2A:0.14,l2D:0.5,l2S:0.8,l2R:0.45,
+      detune:18,scoop:1.6,scoopTime:0.09,vibDepth:0.12,vibDelay:0.45,chorus:1,gate:3},
+    'Strings':{l1level:0.8,l1wave:'sawtooth',l1cut:2200,l1bril:0.2,l1A:0.45,l1D:1,l1S:0.85,l1R:0.7,
+      l2level:0.7,l2wave:'pulse',l2cut:3200,l2bril:0.15,l2A:0.55,l2D:1,l2S:0.85,l2R:0.8,
+      detune:22,vibDepth:0.18,vibDelay:0.8,chorus:2,gate:4},
+    'Soft Pad':{l1level:0.8,l1wave:'triangle',l1cut:1300,l1bril:0.25,l1A:0.9,l1D:1.5,l1S:0.8,l1R:1.2,
+      l2level:0.7,l2wave:'pulse',l2hp:300,l2cut:1800,l2bril:0.2,l2A:1.1,l2D:1.5,l2S:0.8,l2R:1.4,
+      detune:16,vibDepth:0.05,chorus:2,gate:5},
+    'Bass':{l1level:0.9,l1wave:'sawtooth',l1range:-1,l1hp:25,l1cut:380,l1res:0.3,l1bril:0.5,l1A:0.005,l1D:0.3,l1S:0.5,l1R:0.1,
+      l2level:0.4,l2wave:'square',l2range:-1,l2hp:25,l2cut:300,l2bril:0.4,l2A:0.005,l2D:0.25,l2S:0.4,l2R:0.1,
+      detune:6,vibDepth:0,chorus:0,gate:0.9},
+    'Lead':{l1level:0.8,l1wave:'sawtooth',l1cut:3000,l1res:0.3,l1bril:0.4,l1A:0.01,l1D:0.4,l1S:0.8,l1R:0.2,
+      l2level:0.5,l2wave:'sawtooth',l2range:1,l2cut:3500,l2bril:0.3,l2A:0.01,l2D:0.4,l2S:0.7,l2R:0.2,
+      detune:10,scoop:0.8,scoopTime:0.06,vibDepth:0.25,vibDelay:0.3,chorus:0,gate:1.2},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
+    const lfo=p.vibDepth>0.001?makeLfo(ctx,'sine',p.vibRate,t,S,p.vibDelay):null;
+    let end=0;
+    [1,2].forEach(L=>{
+      const k='l'+L, lvl=p[k+'level']; if(lvl<0.001) return;
+      const f=f0*Math.pow(2,p[k+'range']), mix=ctx.createGain(); mix.gain.value=0.3;
+      const dets=[];
+      [-1,1].forEach(sg=>{
+        const o=makeOsc(ctx,p[k+'wave'],f,t,S,{pw:p.pw});
+        o.detune.forEach(d=>{ d.value=sg*p.detune/2+(R()*2-1)*3; dets.push(d); });
+        if(p.scoop>0.001) o.freq.forEach(fp=>{ const ff=clampN(f,0.5,ctx.sampleRate*0.45); fp.setValueAtTime(ff*Math.pow(2,-p.scoop/12),t); fp.exponentialRampToValueAtTime(ff,t+p.scoopTime); });
+        o.out.connect(mix);
+      });
+      if(lfo) modTo(ctx,lfo,p.vibDepth*50,dets);
+      const hp=bq(ctx,'highpass',p[k+'hp'],0.6), lp=bq(ctx,'lowpass',p[k+'cut']*Math.pow(f0/261.63,0.5),0.5+p[k+'res']*9);
+      mix.connect(hp); hp.connect(lp);
+      const fe=envSource(ctx,t,dur,p[k+'A'],p[k+'D'],p[k+'S'],p[k+'R'],S);
+      if(p[k+'bril']>0.001) modTo(ctx,fe.node,p[k+'bril']*4800,[lp.detune]);
+      const vca=ctx.createGain(); vca.gain.value=0;
+      const ae=envADSR(vca.gain,t,dur,p[k+'A'],p[k+'D'],p[k+'S'],p[k+'R'],0.55*lvl,0);
+      lp.connect(vca); vca.connect(dest);
+      end=Math.max(end,ae,fe.end);
+    });
+    end+=0.02; stopAll(S,end); return end;
+  }
+};
+
+/* ---- SH-101: saw + pulse + sub + noise, 24 dB filter, one envelope, LFO, portamento ---- */
+ENGINES.sh101={
+  label:'SH-101 (Roland-style)',
+  trim:1.6,
+  desc:'Monophonic classic: saw, pulse and sub oscillators with noise, a resonant 24 dB low-pass, one ADSR for filter and amp (or gate), LFO and portamento. Great for bass, leads and zaps.',
+  sections:[
+    {title:'OSCILLATORS',controls:[
+      S_('range','RANGE',OCT_OPTS.slice(0,4),0),
+      R_('saw','SAW',0,1,0.7,0.01,pctFmt),
+      R_('pulse','PULSE',0,1,0.4,0.01,pctFmt),
+      R_('pw','PULSE WIDTH',0.05,0.95,0.5,0.01,pctFmt),
+      S_('pwMode','PWM SOURCE',[['manual','Manual'],['lfo','LFO'],['env','Envelope']],'manual'),
+      R_('pwDepth','PWM DEPTH',0,1,0.5,0.01,pctFmt),
+      S_('sub','SUB OSC',[[0,'Off'],[1,'-1 oct square'],[2,'-2 oct square'],[3,'-2 oct pulse']],1),
+      R_('subLevel','SUB LEVEL',0,1,0.5,0.01,pctFmt),
+      R_('noise','NOISE',0,1,0,0.01,pctFmt),
+      R_('glide','PORTAMENTO',0,1,0,0.01,v=>Math.round(v*500)+' ms'),
+    ]},
+    {title:'FILTER',controls:[
+      L_('cutoff','CUTOFF',30,16000,900,'Hz'),
+      R_('res','RESONANCE',0,1,0.35,0.01,pctFmt),
+      R_('envAmt','ENV AMOUNT',0,1,0.5,0.01,pctFmt),
+      R_('lfoFilter','LFO AMOUNT',0,1,0,0.01,pctFmt),
+      R_('keyFollow','KEY FOLLOW',0,1,0.5,0.01,pctFmt),
+    ]},
+    {title:'LFO',controls:[
+      L_('lfoRate','RATE',0.1,30,5,'Hz'),
+      S_('lfoShape','SHAPE',[['triangle','Triangle'],['square','Square'],['sawtooth','Saw']],'triangle'),
+      R_('lfoPitch','→ PITCH',0,1,0,0.01,pctFmt),
+    ]},
+    {title:'ENVELOPE',controls:[S_('vcaMode','VCA',[['env','Envelope'],['gate','Gate']],'env')].concat(ENV4('e',0.003,0.3,0.4,0.15))},
+  ],
+  presets:{
+    'Bass':{saw:0.6,pulse:0.3,sub:1,subLevel:0.8,cutoff:260,res:0.4,envAmt:0.6,keyFollow:0.3,eA:0.002,eD:0.25,eS:0.2,eR:0.1,gate:0.9},
+    'Lead':{saw:0.8,pulse:0.4,sub:1,subLevel:0.2,cutoff:2200,res:0.35,envAmt:0.35,keyFollow:0.8,glide:0.15,lfoPitch:0.12,lfoRate:5.5,eD:0.5,eS:0.6,eR:0.2,gate:1.2},
+    'Sub Drone':{saw:0.2,pulse:0,sub:2,subLevel:1,cutoff:420,res:0.2,envAmt:0.2,eA:0.02,eD:1,eS:0.9,eR:0.4,gate:2},
+    'Zap':{saw:0.8,pulse:0.6,sub:0,cutoff:300,res:0.75,envAmt:1,eA:0.001,eD:0.12,eS:0,eR:0.08,gate:0.4},
+    'Pulse Pluck':{saw:0,pulse:0.9,pw:0.3,pwMode:'lfo',pwDepth:0.5,lfoRate:3,sub:1,subLevel:0.3,cutoff:700,res:0.45,envAmt:0.7,eA:0.001,eD:0.18,eS:0,eR:0.1,gate:0.5},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], f0=mtof(midi), f=f0*Math.pow(2,p.range);
+    const mix=ctx.createGain(); mix.gain.value=0.32;
+    const dets=[], freqs=[]; let pulseO=null;
+    const from=(ev&&ev.from!=null)?ev.from:null, glideT=p.glide*0.5*0.6;
+    function add(o,lvl,ratio){
+      o.detune.forEach(d=>dets.push(d));
+      if(glideT>0.005&&from!=null&&Math.abs(from-midi)>0.01){
+        const ff=clampN(mtof(from)*ratio*Math.pow(2,p.range),0.5,ctx.sampleRate*0.45);
+        o.freq.forEach(fp=>{ fp.setValueAtTime(ff,t); fp.exponentialRampToValueAtTime(clampN(f*ratio,0.5,ctx.sampleRate*0.45),t+glideT); });
+      }
+      const g=ctx.createGain(); g.gain.value=lvl; o.out.connect(g); g.connect(mix);
+    }
+    if(p.saw>0.001) add(makeOsc(ctx,'sawtooth',f,t,S),p.saw,1);
+    if(p.pulse>0.001){ pulseO=makeOsc(ctx,'pulse',f,t,S,{pw:p.pw}); add(pulseO,p.pulse*0.9,1); }
+    const sub=p.sub|0;
+    if(sub>0&&p.subLevel>0.001) add(sub===1?makeOsc(ctx,'square',f/2,t,S):sub===2?makeOsc(ctx,'square',f/4,t,S):makeOsc(ctx,'pulse',f/4,t,S,{pw:0.25}),p.subLevel*0.8,sub===1?0.5:0.25);
+    if(p.noise>0.001){ const n=noiseSrc(ctx,'white',t,S); const g=ctx.createGain(); g.gain.value=p.noise*0.6; n.connect(g); g.connect(mix); }
+    const F=lp24(ctx,p.cutoff*Math.pow(f0/261.63,p.keyFollow),p.res);
+    mix.connect(F.in);
+    const fe=envSource(ctx,t,dur,p.eA,p.eD,p.eS,p.eR,S);
+    if(p.envAmt>0.001) modTo(ctx,fe.node,p.envAmt*6000,F.det);
+    const needLfo=p.lfoPitch>0.001||p.lfoFilter>0.001||(pulseO&&p.pwMode==='lfo');
+    if(needLfo){
+      const lfo=makeLfo(ctx,p.lfoShape,p.lfoRate,t,S,0);
+      if(p.lfoPitch>0.001) modTo(ctx,lfo,p.lfoPitch*100,dets);
+      if(p.lfoFilter>0.001) modTo(ctx,lfo,p.lfoFilter*2400,F.det);
+      if(pulseO&&p.pwMode==='lfo') modTo(ctx,lfo,p.pwDepth*0.45/pulseO.hz,[pulseO.pw]);
+    }
+    if(pulseO&&p.pwMode==='env') modTo(ctx,fe.node,p.pwDepth*0.45/pulseO.hz,[pulseO.pw]);
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const ae=p.vcaMode==='gate'?envADSR(vca.gain,t,dur,0.003,0.01,1,0.02,0.55,0):envADSR(vca.gain,t,dur,p.eA,p.eD,p.eS,p.eR,0.55,0);
+    F.out.connect(vca); vca.connect(dest);
+    const end=Math.max(ae,fe.end)+0.02; stopAll(S,end); return end;
+  }
+};
+
+/* ---- ODYSSEY: two oscillators, ring modulator, high-pass and low-pass ---- */
+ENGINES.odyssey={
+  label:'Odyssey (ARP-style)',
+  trim:1.1,
+  desc:'Duophonic-style lead: two oscillators, ring modulator, noise, separate high-pass and low-pass, and a sample-and-hold style LFO. Cutting and a little metallic.',
+  sections:[
+    {title:'OSCILLATORS',controls:[
+      S_('w1','OSC 1',WAVE_OPTS,'sawtooth'),
+      S_('w2','OSC 2',WAVE_OPTS,'square'),
+      R_('tune2','OSC 2 TUNE',-1200,1200,7,1,v=>v+' ct'),
+      S_('r2','OSC 2 RANGE',OCT_OPTS.slice(0,4),0),
+      R_('pw','PULSE WIDTH',0.05,0.95,0.5,0.01,pctFmt),
+      R_('ring','RING MOD',0,1,0,0.01,pctFmt),
+      R_('noise','NOISE',0,1,0,0.01,pctFmt),
+      R_('glide','PORTAMENTO',0,1,0,0.01,v=>Math.round(v*500)+' ms'),
+    ]},
+    {title:'FILTERS',controls:[
+      L_('hp','HIGH-PASS',20,6000,60,'Hz'),
+      L_('cutoff','LOW-PASS',60,16000,2400,'Hz'),
+      R_('res','RESONANCE',0,1,0.35,0.01,pctFmt),
+      R_('envAmt','ENV AMOUNT',0,1,0.4,0.01,pctFmt),
+      R_('lfoFilter','LFO → FILTER',0,1,0,0.01,pctFmt),
+      R_('lfoPitch','LFO → PITCH',0,1,0,0.01,pctFmt),
+      L_('lfoRate','LFO RATE',0.1,30,6,'Hz'),
+    ]},
+    {title:'ENVELOPE',controls:ENV4('e',0.01,0.3,0.7,0.2)},
+  ],
+  presets:{
+    'Lead':{w1:'sawtooth',w2:'square',tune2:8,ring:0,cutoff:3000,res:0.35,envAmt:0.35,glide:0.2,lfoPitch:0.1,eD:0.4,eS:0.75,gate:1.2},
+    'Ring Bell':{w1:'sine',w2:'triangle',tune2:700,ring:0.9,cutoff:6000,res:0.1,envAmt:0.2,eA:0.002,eD:0.5,eS:0,eR:0.3,gate:0.5},
+    'Sync-ish Bass':{w1:'sawtooth',w2:'sawtooth',tune2:-1200,r2:-1,ring:0,hp:30,cutoff:500,res:0.5,envAmt:0.6,eA:0.002,eD:0.2,eS:0.2,eR:0.1,gate:0.8},
+    'Wobble':{w1:'sawtooth',w2:'pulse',tune2:5,cutoff:900,res:0.5,envAmt:0.2,lfoFilter:0.7,lfoRate:4,eS:0.9,gate:2},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], f0=mtof(midi), dets=[];
+    const from=(ev&&ev.from!=null)?ev.from:null, glideT=p.glide*0.3;
+    const mix=ctx.createGain(); mix.gain.value=0.3;
+    function osc(kind,f,ratio,cents){
+      const o=makeOsc(ctx,kind==='sine'?'sine':kind,f,t,S,{pw:p.pw});
+      o.detune.forEach(d=>{ d.value=cents; dets.push(d); });
+      if(glideT>0.005&&from!=null&&Math.abs(from-midi)>0.01) o.freq.forEach(fp=>{ fp.setValueAtTime(clampN(mtof(from)*ratio,0.5,ctx.sampleRate*0.45),t); fp.exponentialRampToValueAtTime(clampN(f,0.5,ctx.sampleRate*0.45),t+glideT); });
+      return o;
+    }
+    const r2=Math.pow(2,p.r2);
+    const o1=osc(p.w1,f0,1,0), o2=osc(p.w2,f0*r2,r2,p.tune2);
+    const g1=ctx.createGain(), g2=ctx.createGain(); g1.gain.value=1-p.ring*0.6; g2.gain.value=0.8*(1-p.ring*0.6);
+    o1.out.connect(g1); o2.out.connect(g2); g1.connect(mix); g2.connect(mix);
+    if(p.ring>0.001){ const rm=ctx.createGain(); rm.gain.value=0; o1.out.connect(rm); o2.out.connect(rm.gain); const rg=ctx.createGain(); rg.gain.value=p.ring*1.2; rm.connect(rg); rg.connect(mix); }
+    if(p.noise>0.001){ const n=noiseSrc(ctx,'white',t,S); const g=ctx.createGain(); g.gain.value=p.noise*0.6; n.connect(g); g.connect(mix); }
+    const hp=bq(ctx,'highpass',p.hp,0.6); mix.connect(hp);
+    const F=lp24(ctx,p.cutoff*Math.pow(f0/261.63,0.5),p.res); hp.connect(F.in);
+    const fe=envSource(ctx,t,dur,p.eA,p.eD,p.eS,p.eR,S);
+    if(p.envAmt>0.001) modTo(ctx,fe.node,p.envAmt*6000,F.det);
+    if(p.lfoPitch>0.001||p.lfoFilter>0.001){
+      const lfo=makeLfo(ctx,'sine',p.lfoRate,t,S,0);
+      if(p.lfoPitch>0.001) modTo(ctx,lfo,p.lfoPitch*100,dets);
+      if(p.lfoFilter>0.001) modTo(ctx,lfo,p.lfoFilter*2400,F.det);
+    }
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const ae=envADSR(vca.gain,t,dur,p.eA,p.eD,p.eS,p.eR,0.55,0);
+    F.out.connect(vca); vca.connect(dest);
+    const end=Math.max(ae,fe.end)+0.02; stopAll(S,end); return end;
+  }
+};
+
+/* ---- OB: Oberheim-style two-oscillator voice with a morphing multimode filter ---- */
+ENGINES.ob={
+  label:'OB (Oberheim-style)',
+  trim:1.3,
+  desc:'Two oscillators with pulse-width modulation into a state-variable style filter you can sweep from low-pass through notch to high-pass. Fat brass, sweeping pads and polysynth stabs.',
+  over:{chorus:1},
+  sections:[
+    {title:'OSCILLATORS',controls:[
+      S_('w1','OSC 1',WAVE_OPTS,'sawtooth'),
+      S_('w2','OSC 2',WAVE_OPTS,'sawtooth'),
+      R_('detune','OSC 2 DETUNE',-50,50,9,0.5,v=>v+' ct'),
+      R_('pw','PULSE WIDTH',0.05,0.95,0.5,0.01,pctFmt),
+      R_('pwm','PWM (LFO)',0,1,0,0.01,pctFmt),
+      L_('lfoRate','LFO RATE',0.1,20,0.8,'Hz'),
+      R_('lfoPitch','LFO → PITCH',0,1,0,0.01,pctFmt),
+    ]},
+    {title:'FILTER',controls:[
+      R_('mode','MODE  LP · NOTCH · HP',0,1,0,0.01,v=>v<0.15?'Low-pass':v>0.85?'High-pass':'Notch/blend'),
+      L_('cutoff','CUTOFF',40,16000,1500,'Hz'),
+      R_('res','RESONANCE',0,1,0.2,0.01,pctFmt),
+      R_('envAmt','ENV AMOUNT',-1,1,0.4,0.01,v=>Math.round(v*100)+'%'),
+      R_('keyFollow','KEY FOLLOW',0,1,0.5,0.01,pctFmt),
+    ]},
+    {title:'FILTER ENVELOPE',controls:ENV4('fe',0.05,0.5,0.4,0.4)},
+    {title:'AMP ENVELOPE',controls:ENV4('ae',0.03,0.4,0.8,0.3)},
+  ],
+  presets:{
+    'Brass':{w1:'sawtooth',w2:'sawtooth',detune:8,cutoff:700,res:0.15,envAmt:0.65,feA:0.08,feD:0.4,feS:0.5,aeA:0.04,aeD:0.3,aeS:0.85,aeR:0.2,gate:1.6},
+    'Sweep Pad':{w1:'sawtooth',w2:'pulse',detune:12,pwm:0.5,lfoRate:0.4,cutoff:900,res:0.3,envAmt:0.5,feA:1.2,feD:2,feS:0.5,feR:1.5,aeA:0.8,aeD:1,aeS:0.85,aeR:1.4,chorus:2,gate:4},
+    'Poly Stab':{w1:'pulse',w2:'sawtooth',detune:6,pw:0.4,cutoff:1100,res:0.25,envAmt:0.5,feA:0.002,feD:0.22,feS:0.1,aeA:0.003,aeD:0.3,aeS:0.3,aeR:0.15,gate:0.6},
+    'Notch Lead':{w1:'sawtooth',w2:'sawtooth',detune:14,mode:0.4,cutoff:1800,res:0.35,envAmt:0.3,lfoPitch:0.1,lfoRate:5,aeA:0.01,aeS:0.9,aeR:0.2,gate:1.2},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], f0=mtof(midi), dets=[], pws=[];
+    const mix=ctx.createGain(); mix.gain.value=0.3;
+    [[p.w1,0],[p.w2,p.detune]].forEach(([w,c])=>{
+      const o=makeOsc(ctx,w,f0,t,S,{pw:p.pw});
+      o.detune.forEach(d=>{ d.value=c; dets.push(d); });
+      if(o.pw) pws.push([o.pw,o.hz]);
+      o.out.connect(mix);
+    });
+    const cut=p.cutoff*Math.pow(f0/261.63,p.keyFollow), q=0.5+p.res*10;
+    const lp=bq(ctx,'lowpass',cut,q), hp=bq(ctx,'highpass',cut,q);
+    const lg=ctx.createGain(), hg=ctx.createGain(); lg.gain.value=1-p.mode; hg.gain.value=p.mode;
+    mix.connect(lp); mix.connect(hp); lp.connect(lg); hp.connect(hg);
+    const sum=ctx.createGain(); sum.gain.value=1; lg.connect(sum); hg.connect(sum);
+    const fe=envSource(ctx,t,dur,p.feA,p.feD,p.feS,p.feR,S);
+    if(Math.abs(p.envAmt)>0.001) modTo(ctx,fe.node,p.envAmt*6000,[lp.detune,hp.detune]);
+    if(p.pwm>0.001||p.lfoPitch>0.001){
+      const lfo=makeLfo(ctx,'triangle',p.lfoRate,t,S,0);
+      if(p.lfoPitch>0.001) modTo(ctx,lfo,p.lfoPitch*70,dets);
+      pws.forEach(([param,hz])=>{ if(p.pwm>0.001) modTo(ctx,lfo,p.pwm*0.4/hz,[param]); });
+    }
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const ae=envADSR(vca.gain,t,dur,p.aeA,p.aeD,p.aeS,p.aeR,0.55,0);
+    sum.connect(vca); vca.connect(dest);
+    const end=Math.max(ae,fe.end)+0.02; stopAll(S,end); return end;
+  }
+};
+
+/* ---- 303: acid bass line voice with accent and slide ---- */
+ENGINES.tb303={
+  label:'303 (Roland bass line)',
+  trim:0.35,
+  desc:'One oscillator (saw or square) into a resonant low-pass with a short decay envelope. Accent opens the filter harder and adds level; slide glides in from the previous note.',
+  sections:[
+    {title:'VOICE',controls:[
+      S_('wave','WAVEFORM',[['sawtooth','Saw'],['square','Square']],'sawtooth'),
+      L_('cutoff','CUTOFF',40,8000,420,'Hz'),
+      R_('res','RESONANCE',0,1,0.7,0.01,pctFmt),
+      R_('envMod','ENV MOD',0,1,0.6,0.01,pctFmt),
+      L_('decay','DECAY',0.05,2.5,0.25,'s'),
+      R_('accent','ACCENT',0,1,0.5,0.01,pctFmt),
+      R_('accentProb','ACCENT CHANCE',0,1,0.25,0.01,pctFmt),
+      R_('slide','SLIDE',0,1,0.6,0.01,v=>Math.round(v*120)+' ms'),
+      R_('drive','DRIVE',0,1,0.3,0.01,pctFmt),
+    ]},
+  ],
+  presets:{
+    'Acid':{wave:'sawtooth',cutoff:380,res:0.75,envMod:0.65,decay:0.22,accent:0.6,accentProb:0.3,slide:0.6,drive:0.35,gate:0.7},
+    'Squelch':{wave:'square',cutoff:260,res:0.9,envMod:0.8,decay:0.35,accent:0.7,accentProb:0.4,slide:0.8,drive:0.5,gate:0.8},
+    'Round Sub':{wave:'square',cutoff:200,res:0.3,envMod:0.3,decay:0.5,accent:0.2,accentProb:0.1,slide:0.4,drive:0.1,gate:1},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], R=makeRng(ev&&ev.seed), f0=mtof(midi);
+    const acc=R()<p.accentProb, from=(ev&&ev.from!=null)?ev.from:null;
+    const o=makeOsc(ctx,p.wave,f0,t,S);
+    if(from!=null&&Math.abs(from-midi)>0.01&&p.slide>0.02) o.freq.forEach(fp=>{ fp.setValueAtTime(clampN(mtof(from),0.5,ctx.sampleRate*0.45),t); fp.exponentialRampToValueAtTime(clampN(f0,0.5,ctx.sampleRate*0.45),t+p.slide*0.12); });
+    let chain=o.out;
+    if(p.drive>0.01){ const sh=ctx.createWaveShaper(); sh.curve=satCurve(1+p.drive*6); sh.oversample='2x'; const pre=ctx.createGain(); pre.gain.value=0.5; chain.connect(pre); pre.connect(sh); chain=sh; }
+    const F=lp24(ctx,p.cutoff,p.res*0.85);
+    chain.connect(F.in);
+    const amt=p.envMod*(acc?1+p.accent:1)*6000;
+    const fe=envSource(ctx,t,dur,0.001,p.decay*(acc?0.6:1),0,0.05,S);
+    modTo(ctx,fe.node,amt,F.det);
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const peak=0.5*(acc?1+p.accent*0.5:1);
+    const ae=envADSR(vca.gain,t,dur,0.002,0.01,1,0.03,peak,0);
+    F.out.connect(vca); vca.connect(dest);
+    const end=Math.max(ae,fe.end)+0.02; stopAll(S,end); return end;
+  }
+};
+
+/* ---- ORGAN: nine drawbars, percussion, key click, vibrato ---- */
+const DRAWBAR_RATIOS=[0.5,1.5,1,2,3,4,5,6,8];
+const DRAWBAR_NAMES=["16'","5⅓'","8'","4'","2⅔'","2'","1⅗'","1⅓'","1'"];
+ENGINES.organ={
+  label:'Organ (drawbar)',
+  trim:1.5,
+  desc:'Nine sine drawbars at the classic footages, key click, switchable percussion and vibrato. Instant on and off; the GATE sets how long each note is held.',
+  over:{chorus:3},
+  sections:[
+    {title:'DRAWBARS',controls:DRAWBAR_NAMES.map((n,i)=>R_('db'+i,n,0,8,[8,8,8,0,0,0,0,0,0][i],1,v=>String(v)))},
+    {title:'PERCUSSION & CLICK',controls:[
+      S_('perc','PERCUSSION',[[0,'Off'],[2,'2nd'],[3,'3rd']],0),
+      S_('percDecay','PERC DECAY',[[0.12,'Fast'],[0.4,'Slow']],0.12),
+      R_('click','KEY CLICK',0,1,0.25,0.01,pctFmt),
+      R_('vib','VIBRATO',0,1,0,0.01,pctFmt),
+      L_('vibRate','VIB RATE',3,9,6.4,'Hz'),
+      R_('drive','DRIVE',0,1,0.2,0.01,pctFmt),
+    ]},
+  ],
+  presets:{
+    'Jimmy':{db0:8,db1:8,db2:8,db3:0,db4:0,db5:0,db6:0,db7:0,db8:0,perc:3,percDecay:0.12,click:0.3,vib:0,drive:0.3,chorus:3,gate:1.2},
+    'Gospel':{db0:8,db1:8,db2:8,db3:8,db4:0,db5:0,db6:0,db7:0,db8:8,perc:0,click:0.2,vib:0.3,drive:0.25,gate:1.5},
+    'Rock':{db0:8,db1:8,db2:6,db3:0,db4:0,db5:0,db6:0,db7:4,db8:6,perc:0,click:0.35,vib:0,drive:0.5,chorus:0,gate:1},
+    'Flute':{db0:0,db1:0,db2:6,db3:5,db4:0,db5:3,db6:0,db7:0,db8:0,perc:2,percDecay:0.4,click:0.15,vib:0.2,drive:0,gate:1},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], f0=mtof(midi), mix=ctx.createGain(); mix.gain.value=0.07;
+    const dets=[];
+    DRAWBAR_RATIOS.forEach((r,i)=>{
+      const lvl=p['db'+i]/8; if(lvl<0.01||f0*r>ctx.sampleRate*0.4) return;
+      const o=makeOsc(ctx,'sine',f0*r,t,S); o.detune.forEach(d=>dets.push(d));
+      const g=ctx.createGain(); g.gain.value=Math.pow(lvl,1.4); o.out.connect(g); g.connect(mix);
+    });
+    if(p.vib>0.001){ const l=makeLfo(ctx,'sine',p.vibRate,t,S,0); modTo(ctx,l,p.vib*18,dets); }
+    let chain=mix;
+    if(p.drive>0.01){ const sh=ctx.createWaveShaper(); sh.curve=satCurve(1+p.drive*5); sh.oversample='2x'; mix.connect(sh); chain=sh; }
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const ae=envADSR(vca.gain,t,dur,0.004,0.01,1,0.035,0.55,0);
+    chain.connect(vca); vca.connect(dest);
+    let end=ae;
+    if((p.perc|0)>0){
+      const o=makeOsc(ctx,'sine',f0*((p.perc|0)===2?2:3),t,S); const g=ctx.createGain(); g.gain.value=0;
+      g.gain.setValueAtTime(0.35,t); g.gain.setTargetAtTime(0,t,p.percDecay/3); o.out.connect(g); g.connect(dest); end=Math.max(end,t+p.percDecay*2);
+    }
+    if(p.click>0.01){ const n=noiseSrc(ctx,'white',t,S); const bp=bq(ctx,'bandpass',Math.min(6000,f0*6),1.2); const g=ctx.createGain(); g.gain.setValueAtTime(p.click*0.25,t); g.gain.setTargetAtTime(0,t,0.004); n.connect(bp); bp.connect(g); g.connect(dest); }
+    end+=0.02; stopAll(S,end); return end;
+  }
+};
+
+/* ---- EP: Rhodes-style electric piano (tine + tone bar via FM) ---- */
+ENGINES.ep={
+  label:'EP (Rhodes-style)',
+  trim:1.5,
+  desc:'FM electric piano: a sine tine with a decaying bell-like overtone and a soft hammer thump, then a tone filter and tremolo. Notes ring out after the gate.',
+  over:{chorus:1},
+  sections:[
+    {title:'TINE',controls:[
+      R_('bell','BELL',0,1,0.35,0.01,pctFmt),
+      R_('bark','BARK (VELOCITY FEEL)',0,1,0.3,0.01,pctFmt),
+      L_('decay','DECAY',0.2,8,2.2,'s'),
+      L_('release','RELEASE',0.05,3,0.35,'s'),
+      L_('tone','TONE',400,12000,4200,'Hz'),
+      R_('thump','HAMMER',0,1,0.3,0.01,pctFmt),
+    ]},
+    {title:'TREMOLO',controls:[
+      L_('trRate','RATE',0.5,12,4.5,'Hz'),
+      R_('trDepth','DEPTH',0,1,0.15,0.01,pctFmt),
+    ]},
+  ],
+  presets:{
+    'Mellow':{bell:0.2,bark:0.15,decay:2.8,tone:2600,thump:0.25,trDepth:0.2,chorus:1,gate:1.2},
+    'Bright Tine':{bell:0.6,bark:0.55,decay:1.6,tone:7000,thump:0.35,trDepth:0.1,chorus:0,gate:1},
+    'Suitcase':{bell:0.35,bark:0.4,decay:2.4,tone:3800,thump:0.3,trRate:5.5,trDepth:0.5,chorus:0,gate:1.2},
+  },
+  play(ctx,dest,p,midi,t,dur,ev){
+    const S=[], f0=mtof(midi);
+    const car=ctx.createOscillator(); car.type='sine'; car.frequency.value=f0; car.start(t); S.push(car);
+    const mod=ctx.createOscillator(); mod.type='sine'; mod.frequency.value=clampN(f0*1,0.5,ctx.sampleRate*0.4); mod.start(t); S.push(mod);
+    const idx=ctx.createGain(); idx.gain.setValueAtTime(f0*(0.4+p.bark*2.2),t); idx.gain.setTargetAtTime(f0*0.15,t,0.18); mod.connect(idx); idx.connect(car.frequency);
+    const mix=ctx.createGain(); mix.gain.value=0.5; car.connect(mix);
+    const bf=f0*14; if(p.bell>0.01&&bf<ctx.sampleRate*0.4){
+      const b=ctx.createOscillator(); b.type='sine'; b.frequency.value=bf; b.start(t); S.push(b);
+      const bg=ctx.createGain(); bg.gain.setValueAtTime(p.bell*0.12,t); bg.gain.setTargetAtTime(0,t,0.05); b.connect(bg); bg.connect(mix);
+    }
+    const lp=bq(ctx,'lowpass',p.tone,0.7); mix.connect(lp);
+    const vca=ctx.createGain(); vca.gain.value=0;
+    const rel=Math.max(0.05,p.release), g0=Math.max(0.005,dur);
+    vca.gain.setValueAtTime(0,t); vca.gain.linearRampToValueAtTime(0.55,t+0.004);
+    vca.gain.setTargetAtTime(0.0001,t+0.004,p.decay/4);
+    const vAt=0.55*Math.exp(-(g0-0.004)/(p.decay/4));
+    vca.gain.setValueAtTime(Math.max(0.0001,vAt),t+g0); vca.gain.setTargetAtTime(0,t+g0,rel/3);
+    const tr=ctx.createGain(); tr.gain.value=1-p.trDepth*0.5;
+    if(p.trDepth>0.01){ const l=makeLfo(ctx,'sine',p.trRate,t,S,0); modTo(ctx,l,p.trDepth*0.5,[tr.gain]); }
+    lp.connect(vca); vca.connect(tr); tr.connect(dest);
+    if(p.thump>0.01){ const n=noiseSrc(ctx,'white',t,S); const bp=bq(ctx,'lowpass',900,0.7); const g=ctx.createGain(); g.gain.setValueAtTime(p.thump*0.2,t); g.gain.setTargetAtTime(0,t,0.012); n.connect(bp); bp.connect(g); g.connect(dest); }
+    const end=t+g0+rel*2+0.02; stopAll(S,end); return end;
+  }
+};
+
 /* ---------- engine registry helpers ---------- */
-const ENGINE_ORDER=['init','moog','juno','prophet','dx7','strings','strum'];
+const ENGINE_ORDER=['init','moog','juno','prophet','dx7','strings','strum','cs80','sh101','odyssey','ob','tb303','organ','ep'];
 function engineSections(name){ return ENGINES[name].sections.concat(COMMON_SECTIONS); }
 function defaultsFor(name){
   const d={};
