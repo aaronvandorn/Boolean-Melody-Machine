@@ -2711,6 +2711,7 @@ const moogOscControls=(i,range,wave,level,tune)=>[
 ];
 ENGINES.moog={
   label:'Mini (Moog-style)',
+  sig:'Bass',
   trim:0.5,
   desc:'Three oscillators, noise and overload into a 24 dB ladder-style filter. Glide, contour envelopes, LFO. Use a low voice octave for bass.',
   sections:[
@@ -2799,6 +2800,7 @@ ENGINES.moog={
 /* ---- JUNO: DCO + sub + HPF + 24 dB low-pass, LFO, (chorus lives in the shared FX) ---- */
 ENGINES.juno={
   label:'Juno (Roland-style)',
+  sig:'Warm Pad',
   trim:1,
   desc:'Saw + pulse (PWM) + sub, noise, 4-position high-pass, resonant low-pass, triangle LFO with delay. Add Chorus I/II in OUTPUT & FX.',
   over:{chorus:1},
@@ -2879,6 +2881,7 @@ ENGINES.juno={
 const BMOD_LP=80;
 ENGINES.prophet={
   label:'Prophet (Sequential-style)',
+  sig:'Pulse Lead',
   trim:1.9,
   desc:'Oscillator A + B (saw/triangle/pulse), Poly-Mod from the filter envelope and Osc B, resonant 24 dB low-pass. B can act as an LFO. (No oscillator sync.)',
   sections:[
@@ -3015,6 +3018,7 @@ function dxOpsPreset(a){ // a = [[r,f,d,l,A,D,S,R] x6]
 const DX_OFF=[1,0,0,0,0.001,0.3,0,0.2];
 ENGINES.dx7={
   label:'DX (Yamaha-style FM)',
+  sig:'Bell',
   trim:0.75,
   desc:'Six sine operators with per-operator ratio, level and envelope, a selection of 10 classic algorithm topologies, operator feedback, and a global LFO. Carriers are the audible ops; modulators add harmonics.',
   sections:[
@@ -3087,6 +3091,7 @@ ENGINES.dx7={
 /* ---- STRINGS: string-ensemble pad ---- */
 ENGINES.strings={
   label:'Strings (Ensemble)',
+  sig:'Ensemble',
   trim:1.2,
   desc:'Detuned saw footages (16\'/8\'/4\') through a soft low-pass with slow attack. Chorus defaults to I+II for the ensemble shimmer.',
   over:{chorus:3},
@@ -3196,6 +3201,7 @@ function ksBuffer(ctx,p,midi,bucket){
 }
 ENGINES.strum={
   label:'Strum (Karplus-Strong)',
+  sig:'Harp',
   trim:1,
   desc:'Physically modeled plucked string: a noise burst circulating in a tuned delay loop with a damping filter. Play single notes or whole strummed chords with adjustable spread and direction. Rendered per note in code, so it is identical in live play, preview and WAV export.',
   sections:[
@@ -3290,6 +3296,7 @@ function cs80Layer(L,d){
 }
 ENGINES.cs80={
   label:'CS-80 (Yamaha-style)',
+  sig:'Vangelis Brass',
   trim:1.2,
   desc:'Two layers, each with its own oscillators, high-pass, low-pass, brilliance envelope and amp envelope, plus a ribbon-style pitch scoop and delayed vibrato. Add chorus for width.',
   over:{chorus:1},
@@ -3354,6 +3361,7 @@ ENGINES.cs80={
 /* ---- SH-101: saw + pulse + sub + noise, 24 dB filter, one envelope, LFO, portamento ---- */
 ENGINES.sh101={
   label:'SH-101 (Roland-style)',
+  sig:'Pulse Pluck',
   trim:1.6,
   desc:'Monophonic classic: saw, pulse and sub oscillators with noise, a resonant 24 dB low-pass, one ADSR for filter and amp (or gate), LFO and portamento. Great for bass, leads and zaps.',
   sections:[
@@ -3430,6 +3438,7 @@ ENGINES.sh101={
 /* ---- ODYSSEY: two oscillators, ring modulator, high-pass and low-pass ---- */
 ENGINES.odyssey={
   label:'Odyssey (ARP-style)',
+  sig:'Wobble',
   trim:1.1,
   desc:'Duophonic-style lead: two oscillators, ring modulator, noise, separate high-pass and low-pass, and a sample-and-hold style LFO. Cutting and a little metallic.',
   sections:[
@@ -3495,6 +3504,7 @@ ENGINES.odyssey={
 /* ---- OB: Oberheim-style two-oscillator voice with a morphing multimode filter ---- */
 ENGINES.ob={
   label:'OB (Oberheim-style)',
+  sig:'Poly Stab',
   trim:1.3,
   desc:'Two oscillators with pulse-width modulation into a state-variable style filter you can sweep from low-pass through notch to high-pass. Fat brass, sweeping pads and polysynth stabs.',
   over:{chorus:1},
@@ -3555,6 +3565,7 @@ ENGINES.ob={
 /* ---- 303: acid bass line voice with accent and slide ---- */
 ENGINES.tb303={
   label:'303 (Roland bass line)',
+  sig:'Acid',
   trim:0.35,
   desc:'One oscillator (saw or square) into a resonant low-pass with a short decay envelope. Accent opens the filter harder and adds level; slide glides in from the previous note.',
   sections:[
@@ -3600,6 +3611,7 @@ const DRAWBAR_RATIOS=[0.5,1.5,1,2,3,4,5,6,8];
 const DRAWBAR_NAMES=["16'","5⅓'","8'","4'","2⅔'","2'","1⅗'","1⅓'","1'"];
 ENGINES.organ={
   label:'Organ (drawbar)',
+  sig:'Jimmy',
   trim:1.5,
   desc:'Nine sine drawbars at the classic footages, key click, switchable percussion and vibrato. Instant on and off; the GATE sets how long each note is held.',
   over:{chorus:3},
@@ -3647,6 +3659,7 @@ ENGINES.organ={
 /* ---- EP: Rhodes-style electric piano (tine + tone bar via FM) ---- */
 ENGINES.ep={
   label:'EP (Rhodes-style)',
+  sig:'Mellow',
   trim:1.5,
   desc:'FM electric piano: a sine tine with a decaying bell-like overtone and a soft hammer thump, then a tone filter and tremolo. Notes ring out after the gate.',
   over:{chorus:1},
@@ -3833,8 +3846,10 @@ function buildSoundPane(v, el){
 
   pane.querySelector('.engSel').addEventListener('change',e=>{
     syn.engine = e.target.value;
-    syn.preset = '';
-    syn.params = defaultsFor(syn.engine);
+    /* each engine opens on its signature sound, so switching engines is audibly different */
+    const sg = ENGINES[syn.engine].sig;
+    syn.preset = (sg && ENGINES[syn.engine].presets[sg]) ? sg : '';
+    syn.params = paramsFor(syn.engine, syn.preset);
     syn.dirty = false;
     v._snap = null;
     if(v.bus) v.bus.update(syn.params, false);
